@@ -338,34 +338,7 @@ final class StatusMenuController {
     }
 
     private func openLogInConsole() {
-        // Default log location from spec
-        let logPath = NSString(string: "~/Library/Logs/InvoiceFiler/moves.jsonl").expandingTildeInPath
-        let logURL = URL(fileURLWithPath: logPath)
-
-        // Check if log file exists, create directory if needed
-        let fileManager = FileManager.default
-        let logDir = logURL.deletingLastPathComponent()
-
-        if !fileManager.fileExists(atPath: logDir.path) {
-            try? fileManager.createDirectory(at: logDir, withIntermediateDirectories: true)
-        }
-
-        // Create empty log file if it doesn't exist
-        if !fileManager.fileExists(atPath: logURL.path) {
-            fileManager.createFile(atPath: logURL.path, contents: nil)
-        }
-
-        // Open in Console.app
-        NSWorkspace.shared.open(
-            [logURL],
-            withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Console.app"),
-            configuration: NSWorkspace.OpenConfiguration()
-        ) { _, error in
-            if let error = error {
-                // Fallback: open in default app (usually TextEdit or code editor)
-                NSWorkspace.shared.open(logURL)
-            }
-        }
+        LogViewerWindowController.shared.showWindow()
     }
 
     private func openPreferences() {
