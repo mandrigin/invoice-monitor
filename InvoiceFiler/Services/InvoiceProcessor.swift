@@ -398,10 +398,22 @@ final class InvoiceProcessor {
 
         // 8. Execute move
         do {
-            _ = try await mover.moveWithRetry(
+            let moveResult = try await mover.moveWithRetry(
                 from: url,
                 to: organization.destinationPath
             )
+
+            // Use actual destination path (may differ due to collision handling)
+            let actualDestination = moveResult.destinationPath
+
+            if moveResult.hadCollision {
+                logger.logCollision(
+                    sourcePath: url,
+                    intendedPath: organization.destinationPath,
+                    actualPath: actualDestination,
+                    suffix: moveResult.collisionSuffix
+                )
+            }
 
             let result = ProcessingResultData(
                 file: url,
@@ -410,7 +422,7 @@ final class InvoiceProcessor {
                 companyMatch: companyMatch,
                 extractedDate: dateResult,
                 destinationFolder: organization.destinationFolder,
-                outcome: .success(destination: organization.destinationPath),
+                outcome: .success(destination: actualDestination),
                 processingTimeMs: elapsedMs(since: startTime)
             )
             logResult(result)
