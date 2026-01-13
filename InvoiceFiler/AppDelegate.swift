@@ -144,10 +144,105 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             processingQueue?.start()
             invoiceProcessor?.start()
             statusMenuController?.setBadge(.idle)
+
+            // Scan existing files in monitored directories
+            scanExistingFiles()
         } catch {
             statusMenuController?.setBadge(.error)
             showStartupError(error)
         }
+    }
+
+    /// Scan existing files in monitored directories and queue them for processing
+    private func scanExistingFiles() {
+        let config = ConfigManager.shared.config
+        let fileManager = FileManager.default
+        let supportedExtensions = Set(config.supportedExtensions.map { $0.lowercased() })
+
+        var filesToProcess: [URL] = []
+
+        for monitoredPath in config.monitoredPaths {
+            let directoryURL = monitoredPath.path
+
+            // Configure enumeration options based on recursive flag
+            var enumerationOptions: FileManager.DirectoryEnumerationOptions = [.skipsHiddenFiles]
+            if !monitoredPath.recursive {
+                enumerationOptions.insert(.skipsSubdirectoryDescendants)
+            }
+
+            guard let enumerator = fileManager.enumerator(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: enumerationOptions
+            ) else {
+                continue
+            }
+
+            for case let fileURL as URL in enumerator {
+                // Skip directories
+                guard let resourceValues = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+                      resourceValues.isRegularFile == true else {
+                    continue
+                }
+
+                // Check extension filter
+                let ext = fileURL.pathExtension.lowercased()
+                guard supportedExtensions.isEmpty || supportedExtensions.contains(ext) else {
+                    continue
+                }
+
+                // Check exclusion patterns
+                let filename = fileURL.lastPathComponent
+                if matchesAnyExclusionPattern(filename, patterns: config.exclusionPatterns) {
+                    continue
+                }
+
+                filesToProcess.append(fileURL)
+            }
+        }
+
+        // Queue all matching files for processing
+        // The InvoiceProcessor handles idempotency (skipping files already in invoice folders)
+        if !filesToProcess.isEmpty {
+            invoiceProcessor?.queueFiles(filesToProcess)
+        }
+    }
+
+    /// Check if a filename matches any exclusion pattern
+    private func matchesAnyExclusionPattern(_ filename: String, patterns: [String]) -> Bool {
+        for pattern in patterns {
+            if matchesGlob(filename: filename, pattern: pattern) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// Simple glob pattern matching
+    private func matchesGlob(filename: String, pattern: String) -> Bool {
+        if pattern == "*" {
+            return true
+        }
+
+        // Handle prefix patterns like ".*" (hidden files)
+        if pattern.hasPrefix(".") && pattern.dropFirst() == "*" {
+            return filename.hasPrefix(".")
+        }
+
+        // Handle suffix patterns like "*.tmp"
+        if pattern.hasPrefix("*") {
+            let suffix = String(pattern.dropFirst())
+            return filename.hasSuffix(suffix)
+        }
+
+        // Handle prefix patterns like "temp*"
+        if pattern.hasSuffix("*") {
+            let prefix = String(pattern.dropLast())
+            return filename.hasPrefix(prefix)
+        }
+
+        // Exact match
+        return filename == pattern
     }
 
     private func stopMonitoring() {
