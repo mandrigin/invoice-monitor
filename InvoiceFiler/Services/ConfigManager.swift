@@ -278,6 +278,40 @@ final class ConfigManager: ObservableObject {
             config.monitoredPaths.removeAll { $0.path == url }
         }
     }
+
+    /// Create default config file if it doesn't exist
+    func createDefaultConfigIfNeeded() {
+        let fileManager = FileManager.default
+
+        // Create app support directory
+        if !fileManager.fileExists(atPath: appSupportDirectory.path) {
+            try? fileManager.createDirectory(at: appSupportDirectory, withIntermediateDirectories: true)
+        }
+
+        // Create config file with defaults and example
+        if !fileManager.fileExists(atPath: configFileURL.path) {
+            // Create a default config with helpful example
+            var exampleConfig = AppConfig.default
+
+            // Add example monitored path (Downloads)
+            if let downloadsURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first {
+                exampleConfig.monitoredPaths = [MonitoredPath(path: downloadsURL, recursive: false)]
+            }
+
+            // Add example company
+            exampleConfig.companies = [
+                CompanyConfig(
+                    name: "Example Company",
+                    aliases: ["Example Corp", "Example Inc"],
+                    taxIds: ["12-3456789"],
+                    domains: ["example.com"]
+                )
+            ]
+
+            config = exampleConfig
+            try? saveConfig()
+        }
+    }
 }
 
 // MARK: - Error Types

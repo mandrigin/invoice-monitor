@@ -1,0 +1,508 @@
+import Foundation
+import Combine
+
+// MARK: - Processing Outcome
+
+/// Detailed outcome of processing a file
+enum ProcessingOutcome {
+    case success(destination: URL)
+    case skippedNotInvoice(confidence: Float)
+    case skippedNoCompanyMatch
+    case skippedAlreadyFiled
+    case skippedExtractionFailed(Error)
+    case skippedProtected
+    case skippedNoContent
+    case skippedDeleted
+    case failedMoveError(Error)
+    case failedLocked
+
+    var logOutcome: LogOutcome {
+        switch self {
+        case .success:
+            return .success
+        case .skippedNotInvoice:
+            return .skippedNotInvoice
+        case .skippedNoCompanyMatch:
+            return .skippedNoCompanyMatch
+        case .skippedAlreadyFiled:
+            return .skippedAlreadyFiled
+        case .skippedExtractionFailed:
+            return .skippedExtractionFailed
+        case .skippedProtected:
+            return .skippedProtected
+        case .skippedNoContent:
+            return .skippedNoContent
+        case .skippedDeleted:
+            return .skippedDeleted
+        case .failedMoveError:
+            return .failedMoveError
+        case .failedLocked:
+            return .failedLocked
+        }
+    }
+
+    var isSuccess: Bool {
+        if case .success = self { return true }
+        return false
+    }
+}
+
+// MARK: - Processing Result
+
+/// Complete result of processing a file
+struct ProcessingResultData {
+    let file: URL
+    let extraction: ExtractionResult?
+    let invoiceClassification: InvoiceClassification?
+    let companyMatch: CompanyMatchResult?
+    let extractedDate: DateExtractionResult?
+    let destinationFolder: URL?
+    let outcome: ProcessingOutcome
+    let processingTimeMs: Int
+}
+
+// MARK: - Invoice Processor Delegate
+
+/// Delegate protocol for processing events
+protocol InvoiceProcessorDelegate: AnyObject {
+    func processorDidStartProcessing(_ processor: InvoiceProcessor, file: URL)
+    func processorDidFinishProcessing(_ processor: InvoiceProcessor, result: ProcessingResultData)
+    func processorDidEncounterError(_ processor: InvoiceProcessor, file: URL, error: Error)
+}
+
+// MARK: - Invoice Processor
+
+/// Main processing loop for invoice filing
+///
+/// Implementation per spec section 5.3:
+/// - Coordinates file events → debounce → extract → classify → match → organize → move
+/// - Handles all edge cases from section 7
+/// - Logs all operations
+final class InvoiceProcessor {
+
+    // MARK: - Properties
+
+    private let contentExtractor: ContentExtractor
+    private let invoiceClassifier: InvoiceClassifier
+    private let companyMatcher: CompanyMatcher
+    private let dateExtractor: DateExtractor
+    private let organizer: Organizer
+    private let mover: Mover
+    private let logger: Logger
+    private let processingQueue: ProcessingQueue
+
+    private let config: AppConfig
+
+    weak var delegate: InvoiceProcessorDelegate?
+
+    /// Cancellables for Combine subscriptions
+    private var cancellables = Set<AnyCancellable>()
+
+    // MARK: - Initialization
+
+    /// Create a processor with all required components
+    init(
+        contentExtractor: ContentExtractor,
+        invoiceClassifier: InvoiceClassifier,
+        companyMatcher: CompanyMatcher,
+        dateExtractor: DateExtractor,
+        organizer: Organizer,
+        mover: Mover,
+        logger: Logger,
+        processingQueue: ProcessingQueue,
+        config: AppConfig
+    ) {
+        self.contentExtractor = contentExtractor
+        self.invoiceClassifier = invoiceClassifier
+        self.companyMatcher = companyMatcher
+        self.dateExtractor = dateExtractor
+        self.organizer = organizer
+        self.mover = mover
+        self.logger = logger
+        self.processingQueue = processingQueue
+        self.config = config
+
+        setupProcessingQueue()
+    }
+
+    /// Create a processor from the current app configuration
+    static func fromConfig(logger: Logger, processingQueue: ProcessingQueue) -> InvoiceProcessor {
+        let config = ConfigManager.shared.config
+        return InvoiceProcessor(
+            contentExtractor: ContentExtractor.fromConfig(),
+            invoiceClassifier: InvoiceClassifier.fromConfig(),
+            companyMatcher: CompanyMatcher.fromConfig(),
+            dateExtractor: DateExtractor(),
+            organizer: Organizer.fromConfig(),
+            mover: Mover(),
+            logger: logger,
+            processingQueue: processingQueue,
+            config: config
+        )
+    }
+
+    // MARK: - Setup
+
+    private func setupProcessingQueue() {
+        processingQueue.setProcessHandler { [weak self] url in
+            await self?.processFile(at: url)
+        }
+    }
+
+    // MARK: - Public API
+
+    /// Start the processor
+    func start() {
+        processingQueue.start()
+    }
+
+    /// Stop the processor
+    func stop() {
+        processingQueue.stop()
+    }
+
+    /// Queue a file for processing
+    func queueFile(_ url: URL) {
+        processingQueue.enqueue(url)
+    }
+
+    /// Queue multiple files for processing
+    func queueFiles(_ urls: [URL]) {
+        processingQueue.enqueue(urls)
+    }
+
+    /// Subscribe to debounced file events
+    func subscribe(to debouncer: Debouncer) {
+        debouncer.readyFiles
+            .sink { [weak self] debouncedFile in
+                self?.queueFile(debouncedFile.url)
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Processing Logic
+
+    /// Process a single file through the full pipeline
+    private func processFile(at url: URL) async {
+        let startTime = Date()
+
+        delegate?.processorDidStartProcessing(self, file: url)
+
+        // Track intermediate results for logging
+        var extraction: ExtractionResult?
+        var classification: InvoiceClassification?
+        var companyMatch: CompanyMatchResult?
+        var dateResult: DateExtractionResult?
+
+        // 1. Check if file still exists (may have been deleted during debounce)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: nil,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedDeleted,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 2. Idempotency check - skip if already in invoice folder
+        if organizer.isAlreadyInInvoiceFolder(url) {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: nil,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedAlreadyFiled,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 3. Extract content
+        do {
+            extraction = try await contentExtractor.extract(from: url)
+        } catch ContentExtractorError.pdfExtractionFailed(let pdfError) {
+            // Check for password-protected PDF
+            if case .documentUnreadable = pdfError {
+                let result = ProcessingResultData(
+                    file: url,
+                    extraction: nil,
+                    invoiceClassification: nil,
+                    companyMatch: nil,
+                    extractedDate: nil,
+                    destinationFolder: nil,
+                    outcome: .skippedProtected,
+                    processingTimeMs: elapsedMs(since: startTime)
+                )
+                logResult(result)
+                delegate?.processorDidFinishProcessing(self, result: result)
+                return
+            }
+
+            let result = ProcessingResultData(
+                file: url,
+                extraction: nil,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedExtractionFailed(pdfError),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        } catch {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: nil,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedExtractionFailed(error),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        guard let extractionResult = extraction else {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: nil,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedNoContent,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // Check for meaningful content
+        if !extractionResult.hasMeaningfulContent {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: nil,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedNoContent,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 4. Classify as invoice
+        classification = invoiceClassifier.classify(extractionResult.text)
+
+        guard let classificationResult = classification, classificationResult.isInvoice else {
+            let confidence = classification?.confidence ?? 0.0
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedNotInvoice(confidence: confidence),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 5. Match company
+        companyMatch = companyMatcher.match(
+            text: extractionResult.text,
+            filename: config.enableFilenameHint ? url.lastPathComponent : nil
+        )
+
+        guard let matchResult = companyMatch else {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: nil,
+                extractedDate: nil,
+                destinationFolder: nil,
+                outcome: .skippedNoCompanyMatch,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 6. Extract date
+        dateResult = dateExtractor.extract(
+            from: extractionResult.text,
+            fileURL: url,
+            dateSource: config.dateSource
+        )
+
+        let invoiceDate = dateResult?.date ?? Date()
+
+        // 7. Resolve destination
+        let organization: OrganizationResult
+        do {
+            organization = try organizer.organize(sourceURL: url, folderDate: invoiceDate)
+        } catch OrganizerError.alreadyInInvoiceFolder {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: companyMatch,
+                extractedDate: dateResult,
+                destinationFolder: nil,
+                outcome: .skippedAlreadyFiled,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        } catch {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: companyMatch,
+                extractedDate: dateResult,
+                destinationFolder: nil,
+                outcome: .failedMoveError(error),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+            return
+        }
+
+        // 8. Execute move
+        do {
+            _ = try await mover.moveWithRetry(
+                from: url,
+                to: organization.destinationPath
+            )
+
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: companyMatch,
+                extractedDate: dateResult,
+                destinationFolder: organization.destinationFolder,
+                outcome: .success(destination: organization.destinationPath),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+
+        } catch MoverError.maxRetriesExceeded {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: companyMatch,
+                extractedDate: dateResult,
+                destinationFolder: organization.destinationFolder,
+                outcome: .failedLocked,
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+
+        } catch {
+            let result = ProcessingResultData(
+                file: url,
+                extraction: extraction,
+                invoiceClassification: classification,
+                companyMatch: companyMatch,
+                extractedDate: dateResult,
+                destinationFolder: organization.destinationFolder,
+                outcome: .failedMoveError(error),
+                processingTimeMs: elapsedMs(since: startTime)
+            )
+            logResult(result)
+            delegate?.processorDidFinishProcessing(self, result: result)
+        }
+    }
+
+    // MARK: - Logging
+
+    private func logResult(_ result: ProcessingResultData) {
+        let destinationPath: URL?
+        if case .success(let dest) = result.outcome {
+            destinationPath = dest
+        } else {
+            destinationPath = nil
+        }
+
+        let fileSize = getFileSize(result.file)
+
+        var errorCode: String?
+        var errorMessage: String?
+
+        switch result.outcome {
+        case .skippedExtractionFailed(let error):
+            errorCode = "extraction_failed"
+            errorMessage = error.localizedDescription
+        case .failedMoveError(let error):
+            errorCode = "move_error"
+            errorMessage = error.localizedDescription
+        case .failedLocked:
+            errorCode = "file_locked"
+            errorMessage = "File was locked after max retries"
+        default:
+            break
+        }
+
+        logger.log(
+            action: "move",
+            outcome: result.outcome.logOutcome,
+            sourcePath: result.file,
+            destinationPath: destinationPath,
+            fileSize: fileSize,
+            extraction: result.extraction?.asExtractionDetails,
+            invoiceClassification: result.invoiceClassification?.asClassificationDetails,
+            companyMatch: result.companyMatch?.asCompanyMatchDetails,
+            dateExtraction: result.extractedDate?.asExtractionDetails(),
+            processingTimeMs: result.processingTimeMs,
+            errorCode: errorCode,
+            errorMessage: errorMessage
+        )
+    }
+
+    // MARK: - Helpers
+
+    private func elapsedMs(since startTime: Date) -> Int {
+        return Int(Date().timeIntervalSince(startTime) * 1000)
+    }
+
+    private func getFileSize(_ url: URL) -> Int64 {
+        do {
+            let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+            return attributes[.size] as? Int64 ?? 0
+        } catch {
+            return 0
+        }
+    }
+}
