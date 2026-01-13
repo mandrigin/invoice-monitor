@@ -191,6 +191,34 @@ class Logger {
         appendEntry(entry)
     }
 
+    /// Log a path collision event
+    func logCollision(
+        sourcePath: URL,
+        intendedPath: URL,
+        actualPath: URL,
+        suffix: Int?
+    ) {
+        let entry = LogEntry(
+            timestamp: dateFormatter.string(from: Date()),
+            eventId: UUID().uuidString,
+            action: "collision",
+            outcome: .success,
+            sourcePath: sourcePath.path,
+            destinationPath: actualPath.path,
+            filename: sourcePath.lastPathComponent,
+            fileSize: 0,
+            extraction: nil,
+            invoiceClassification: nil,
+            companyMatch: nil,
+            dateExtraction: nil,
+            processingTimeMs: 0,
+            errorCode: nil,
+            errorMessage: "Collision resolved: \(intendedPath.lastPathComponent) → \(actualPath.lastPathComponent) (suffix: \(suffix ?? 0))"
+        )
+
+        appendEntry(entry)
+    }
+
     /// Get the current log file path
     var currentLogPath: URL {
         return logPath
