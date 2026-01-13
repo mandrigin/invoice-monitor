@@ -267,21 +267,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Notification Handlers
 
     @objc private func handleOpenPreferences() {
-        // For now, show an alert indicating preferences are not yet implemented
-        // TODO: Implement preferences window
-        let alert = NSAlert()
-        alert.messageText = "Preferences"
-        alert.informativeText = "Preferences window is not yet implemented.\n\nYou can edit the configuration file directly at:\n\(ConfigManager.shared.configFileURL.path)"
-        alert.alertStyle = .informational
-        alert.addButton(withTitle: "Show Config File")
-        alert.addButton(withTitle: "OK")
-
-        if alert.runModal() == .alertFirstButtonReturn {
-            NSWorkspace.shared.selectFile(
-                ConfigManager.shared.configFileURL.path,
-                inFileViewerRootedAtPath: ""
-            )
-        }
+        PreferencesWindowController.shared.showWindow()
     }
 
     @objc private func handleConfigChanged() {
