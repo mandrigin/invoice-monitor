@@ -3,58 +3,49 @@ import Cocoa
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
 
-    private var statusItem: NSStatusItem?
+    private var statusMenuController: StatusMenuController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        setupStatusItem()
+        setupStatusMenu()
+        setupNotifications()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Cleanup
     }
 
-    // MARK: - Status Item Setup
+    // MARK: - Setup
 
-    private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-
-        if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "doc.text.magnifyingglass", accessibilityDescription: "Invoice Filer")
-            button.image?.isTemplate = true
-        }
-
-        statusItem?.menu = createMenu()
+    private func setupStatusMenu() {
+        statusMenuController = StatusMenuController()
     }
 
-    private func createMenu() -> NSMenu {
-        let menu = NSMenu()
-
-        menu.addItem(NSMenuItem(title: "Invoice Filer", action: nil, keyEquivalent: ""))
-        menu.addItem(NSMenuItem.separator())
-
-        let statusMenuItem = NSMenuItem(title: "Status: Idle", action: nil, keyEquivalent: "")
-        statusMenuItem.isEnabled = false
-        menu.addItem(statusMenuItem)
-
-        menu.addItem(NSMenuItem.separator())
-
-        menu.addItem(NSMenuItem(title: "Preferences...", action: #selector(openPreferences), keyEquivalent: ","))
-        menu.addItem(NSMenuItem(title: "View Log...", action: #selector(viewLog), keyEquivalent: "l"))
-
-        menu.addItem(NSMenuItem.separator())
-
-        menu.addItem(NSMenuItem(title: "Quit Invoice Filer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-
-        return menu
+    private func setupNotifications() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenPreferences),
+            name: .openPreferences,
+            object: nil
+        )
     }
 
-    // MARK: - Menu Actions
+    // MARK: - Public Access
 
-    @objc private func openPreferences() {
-        // TODO: Implement preferences window
+    /// Provides access to the status menu controller for other components
+    var statusMenu: StatusMenuController? {
+        return statusMenuController
     }
 
-    @objc private func viewLog() {
-        // TODO: Open log in Console.app
+    // MARK: - Notification Handlers
+
+    @objc private func handleOpenPreferences() {
+        // TODO: Show preferences window
+        // For now, show an alert indicating preferences are not yet implemented
+        let alert = NSAlert()
+        alert.messageText = "Preferences"
+        alert.informativeText = "Preferences window is not yet implemented."
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 }
