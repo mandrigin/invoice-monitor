@@ -66,6 +66,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .configDidChange,
             object: nil
         )
+
+        // Request user notification authorization
+        if #available(macOS 10.14, *) {
+            NotificationManager.shared.requestAuthorization()
+        }
     }
 
     private func checkPermissions() {
@@ -368,8 +373,19 @@ extension AppDelegate: InvoiceProcessorDelegate {
             let filename = result.file.lastPathComponent
 
             switch result.outcome {
-            case .success:
+            case .success(let destination):
                 self?.statusMenuController?.recordFileFiled(filename: filename)
+
+                // Show user notification
+                if #available(macOS 10.14, *) {
+                    let destinationFolder = destination.deletingLastPathComponent().lastPathComponent
+                    let companyName = result.companyMatch?.company.name
+                    NotificationManager.shared.showInvoiceFiled(
+                        filename: filename,
+                        destinationFolder: destinationFolder,
+                        companyName: companyName
+                    )
+                }
             case .skippedNotInvoice:
                 self?.statusMenuController?.recordFileSkipped(filename: filename, reason: "Not an invoice")
             case .skippedNoCompanyMatch:
