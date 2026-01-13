@@ -212,7 +212,7 @@ final class InvoiceProcessor {
         }
 
         // 2. Idempotency check - skip if already in invoice folder
-        if organizer.isAlreadyInInvoiceFolder(url) {
+        if organizer.isInInvoiceFolder(url) {
             let result = ProcessingResultData(
                 file: url,
                 extraction: nil,
@@ -365,7 +365,7 @@ final class InvoiceProcessor {
         // 7. Resolve destination
         let organization: OrganizationResult
         do {
-            organization = try organizer.organize(sourceURL: url, folderDate: invoiceDate)
+            organization = try organizer.organize(sourceFile: url, extractedDate: invoiceDate)
         } catch OrganizerError.alreadyInInvoiceFolder {
             let result = ProcessingResultData(
                 file: url,
@@ -416,7 +416,7 @@ final class InvoiceProcessor {
             logResult(result)
             delegate?.processorDidFinishProcessing(self, result: result)
 
-        } catch MoverError.maxRetriesExceeded {
+        } catch let error as MoverError where error.errorCode == "file_locked" {
             let result = ProcessingResultData(
                 file: url,
                 extraction: extraction,
