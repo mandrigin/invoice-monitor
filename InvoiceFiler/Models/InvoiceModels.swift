@@ -73,7 +73,7 @@ enum Currency: String, Codable, CaseIterable, Identifiable {
 // MARK: - Line Item
 
 /// A single line item on an invoice
-struct LineItem: Codable, Equatable, Identifiable {
+struct LineItem: Codable, Equatable, Identifiable, Hashable {
     var id: UUID
     var description: String
     var quantity: Decimal
@@ -102,7 +102,7 @@ struct LineItem: Codable, Equatable, Identifiable {
 // MARK: - Contact Details
 
 /// Contact information for sender or recipient
-struct ContactDetails: Codable, Equatable {
+struct ContactDetails: Codable, Equatable, Hashable {
     var name: String
     var company: String?
     var addressLine1: String?
@@ -169,7 +169,7 @@ struct ContactDetails: Codable, Equatable {
 // MARK: - Payment Terms
 
 /// Payment terms for an invoice
-struct PaymentTerms: Codable, Equatable {
+struct PaymentTerms: Codable, Equatable, Hashable {
     /// Number of days until payment is due
     var daysUntilDue: Int
 
@@ -207,7 +207,7 @@ struct PaymentTerms: Codable, Equatable {
 // MARK: - Invoice Template
 
 /// A reusable invoice template saved per client
-struct InvoiceTemplate: Codable, Identifiable, Equatable {
+struct InvoiceTemplate: Codable, Identifiable, Equatable, Hashable {
     var id: UUID
     var name: String
     var clientCompanyName: String  // Links to CompanyConfig by name
@@ -283,7 +283,7 @@ enum DraftInvoiceStatus: String, Codable {
 // MARK: - Draft Invoice
 
 /// A generated invoice draft based on a template
-struct DraftInvoice: Codable, Identifiable, Equatable {
+struct DraftInvoice: Codable, Identifiable, Equatable, Hashable {
     var id: UUID
     var templateId: UUID
     var invoiceNumber: String
