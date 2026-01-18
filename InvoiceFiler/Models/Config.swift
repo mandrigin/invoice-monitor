@@ -16,11 +16,33 @@ struct CompanyConfig: Codable, Equatable, Hashable {
     /// Company email domains (e.g., "acme.com")
     var domains: [String]
 
-    init(name: String, aliases: [String] = [], taxIds: [String] = [], domains: [String] = []) {
+    // MARK: - Invoice Scheduling Properties
+
+    /// ISO 3166-1 alpha-2 country code for bank holiday lookup (e.g., "US", "GB", "DE")
+    var countryCode: String
+
+    /// Default payment terms in days (e.g., 30 for Net 30)
+    var defaultPaymentTerms: Int
+
+    /// Whether invoice scheduling is enabled for this company
+    var schedulingEnabled: Bool
+
+    init(
+        name: String,
+        aliases: [String] = [],
+        taxIds: [String] = [],
+        domains: [String] = [],
+        countryCode: String = "US",
+        defaultPaymentTerms: Int = 30,
+        schedulingEnabled: Bool = false
+    ) {
         self.name = name
         self.aliases = aliases
         self.taxIds = taxIds
         self.domains = domains
+        self.countryCode = countryCode
+        self.defaultPaymentTerms = defaultPaymentTerms
+        self.schedulingEnabled = schedulingEnabled
     }
 }
 
@@ -109,9 +131,17 @@ struct AppConfig: Codable, Equatable {
     /// Include extracted text in log entries (privacy concern)
     var logExtractedText: Bool
 
+    // MARK: - Invoice Generation Settings
+
+    /// Sender's country code for bank holiday calculation (ISO 3166-1 alpha-2)
+    var senderCountryCode: String
+
+    /// Enable invoice generation scheduling
+    var invoiceSchedulingEnabled: Bool
+
     // MARK: - Default Values
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 
     static var `default`: AppConfig {
         let logsDir = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first!
@@ -134,7 +164,9 @@ struct AppConfig: Codable, Equatable {
             companyMatchThreshold: 0.8,
             maxOCRPages: 3,
             enableFilenameHint: true,
-            logExtractedText: false
+            logExtractedText: false,
+            senderCountryCode: "US",
+            invoiceSchedulingEnabled: false
         )
     }
 
@@ -157,6 +189,8 @@ struct AppConfig: Codable, Equatable {
         case maxOCRPages
         case enableFilenameHint
         case logExtractedText
+        case senderCountryCode
+        case invoiceSchedulingEnabled
     }
 }
 

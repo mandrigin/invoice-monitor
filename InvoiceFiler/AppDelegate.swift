@@ -33,6 +33,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         checkPermissions()
         setupLaunchAtLogin()
         setupProcessingPipeline()
+        setupInvoiceScheduler()
         startMonitoring()
     }
 
@@ -94,6 +95,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if #available(macOS 13.0, *) {
             let config = ConfigManager.shared.config
             LaunchAtLoginManager.shared.sync(with: config.launchAtLogin)
+        }
+    }
+
+    private func setupInvoiceScheduler() {
+        let config = ConfigManager.shared.config
+        if config.invoiceSchedulingEnabled {
+            InvoiceScheduler.shared.startScheduler()
         }
     }
 

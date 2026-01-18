@@ -118,6 +118,11 @@ final class StatusMenuController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Invoicing
+        let invoicingItem = NSMenuItem(title: "Invoice Management...", action: #selector(openInvoicingAction(_:)), keyEquivalent: "i")
+        invoicingItem.target = self
+        menu.addItem(invoicingItem)
+
         // View Log
         let viewLogItem = NSMenuItem(title: "View Log...", action: #selector(viewLogAction(_:)), keyEquivalent: "l")
         viewLogItem.target = self
@@ -215,6 +220,10 @@ final class StatusMenuController {
     }
 
     // MARK: - Menu Actions
+
+    @objc private func openInvoicingAction(_ sender: Any?) {
+        InvoicingWindowController.shared.showWindow()
+    }
 
     @objc private func viewLogAction(_ sender: Any?) {
         openLogInConsole()
