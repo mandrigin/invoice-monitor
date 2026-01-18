@@ -256,8 +256,71 @@ struct DraftInvoiceEditorView: View {
     }
 
     private func exportPDF() {
-        // TODO: Implement PDF export
-        // This would use PDFKit to render the invoice
+        // 1. Generate filename from invoice number
+        let sanitizedNumber = editedDraft.invoiceNumber
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let filename = "\(sanitizedNumber).pdf"
+
+        // 2. Determine destination folder using Organizer pattern
+        let config = ConfigManager.shared.config
+        let organizer = Organizer.fromConfig()
+        let folderName = organizer.invoiceFolderName(for: editedDraft.issueDate)
+
+        // Use destinationRoot if configured, otherwise use Documents folder
+        let destinationRoot: URL
+        if let configuredRoot = config.destinationRoot {
+            destinationRoot = configuredRoot
+        } else {
+            destinationRoot = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        }
+
+        let destinationFolder = destinationRoot.appendingPathComponent(folderName)
+        let destinationPath = destinationFolder.appendingPathComponent(filename)
+
+        // 3. Ensure destination folder exists
+        do {
+            try FileManager.default.createDirectory(
+                at: destinationFolder,
+                withIntermediateDirectories: true
+            )
+        } catch {
+            print("Failed to create destination folder: \(error)")
+            return
+        }
+
+        // 4. Render invoice to PDF using ImageRenderer
+        let previewView = InvoicePreviewView(invoice: editedDraft)
+            .frame(width: 612, height: 792) // US Letter size at 72 DPI
+
+        let renderer = ImageRenderer(content: previewView)
+        renderer.scale = 2.0 // Higher resolution
+
+        // Handle potential filename collision
+        var finalPath = destinationPath
+        var counter = 1
+        while FileManager.default.fileExists(atPath: finalPath.path) {
+            let nameWithoutExt = sanitizedNumber
+            finalPath = destinationFolder.appendingPathComponent("\(nameWithoutExt)-\(counter).pdf")
+            counter += 1
+        }
+
+        // Render to PDF
+        renderer.render { size, renderContext in
+            var mediaBox = CGRect(origin: .zero, size: size)
+            guard let context = CGContext(finalPath as CFURL, mediaBox: &mediaBox, nil) else {
+                print("Failed to create PDF context")
+                return
+            }
+
+            context.beginPDFPage(nil)
+            renderContext(context)
+            context.endPDFPage()
+            context.closePDF()
+        }
+
+        // 5. Reveal in Finder
+        NSWorkspace.shared.selectFile(finalPath.path, inFileViewerRootedAtPath: destinationFolder.path)
     }
 
     /// Recalculate payment terms based on the difference between due date and issue date.
