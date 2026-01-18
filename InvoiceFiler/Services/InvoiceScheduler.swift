@@ -88,6 +88,8 @@ final class InvoiceScheduler: ObservableObject {
     // MARK: - Draft Invoice Management
 
     /// Generate a draft invoice from a template
+    /// Due date is calculated as: next billing day - 1 working day
+    /// This ensures payment arrives before the billing day (e.g., for salary payments)
     func generateDraft(from template: InvoiceTemplate, forDate date: Date = Date()) -> DraftInvoice {
         let sequence = getNextSequence(for: date)
         let invoiceNumber = InvoiceNumberGenerator.generate(
@@ -96,20 +98,30 @@ final class InvoiceScheduler: ObservableObject {
             sequence: sequence
         )
 
-        // Calculate due date based on payment terms
         let calendar = Calendar.current
-        let dueDate = calendar.date(
-            byAdding: .day,
-            value: template.paymentTerms.daysUntilDue,
-            to: date
-        ) ?? date
 
-        let draft = DraftInvoice.fromTemplate(
+        // Calculate the next billing day (in the next month)
+        var components = calendar.dateComponents([.year, .month], from: date)
+        components.month! += 1
+        components.day = template.billingDayOfMonth
+        let nextBillingDay = calendar.date(from: components) ?? date
+
+        // Subtract 1 working day from billing day to get due date
+        // This ensures payment arrives BEFORE the billing day
+        let dueDate = previousWorkingDay(before: nextBillingDay)
+
+        // Calculate payment terms from the due date (due date - issue date)
+        let daysBetween = calendar.dateComponents([.day], from: date, to: dueDate).day ?? template.paymentTerms.daysUntilDue
+        var adjustedPaymentTerms = template.paymentTerms
+        adjustedPaymentTerms.daysUntilDue = max(0, daysBetween)
+
+        var draft = DraftInvoice.fromTemplate(
             template,
             invoiceNumber: invoiceNumber,
             issueDate: date,
             dueDate: dueDate
         )
+        draft.paymentTerms = adjustedPaymentTerms
 
         draftInvoices.append(draft)
         saveDrafts()
@@ -124,6 +136,22 @@ final class InvoiceScheduler: ObservableObject {
         }
 
         return draft
+    }
+
+    /// Get the previous working day before a given date (subtracts 1 working day)
+    /// Uses simple weekend detection; for holiday-aware calculation use WorkingDayCalculator
+    private func previousWorkingDay(before date: Date) -> Date {
+        let calendar = Calendar.current
+        var result = calendar.date(byAdding: .day, value: -1, to: date) ?? date
+
+        // Skip weekends (Saturday = 7, Sunday = 1)
+        var weekday = calendar.component(.weekday, from: result)
+        while weekday == 1 || weekday == 7 {
+            result = calendar.date(byAdding: .day, value: -1, to: result) ?? result
+            weekday = calendar.component(.weekday, from: result)
+        }
+
+        return result
     }
 
     /// Update a draft invoice

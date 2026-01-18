@@ -73,11 +73,22 @@ struct DraftInvoiceEditorView: View {
                                 selection: $editedDraft.issueDate,
                                 displayedComponents: .date
                             )
+                            .onChange(of: editedDraft.issueDate) { _ in
+                                recalculatePaymentTerms()
+                            }
                             DatePicker(
                                 "Due Date",
                                 selection: $editedDraft.dueDate,
                                 displayedComponents: .date
                             )
+                            .onChange(of: editedDraft.dueDate) { _ in
+                                recalculatePaymentTerms()
+                            }
+
+                            // Display calculated payment terms
+                            Text("Payment Terms: \(editedDraft.paymentTerms.displayText)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
                         .padding(.vertical, 8)
                     }
@@ -227,6 +238,15 @@ struct DraftInvoiceEditorView: View {
     private func exportPDF() {
         // TODO: Implement PDF export
         // This would use PDFKit to render the invoice
+    }
+
+    /// Recalculate payment terms based on the difference between due date and issue date.
+    /// This preserves the user's intended due date rather than calculating it from payment terms.
+    private func recalculatePaymentTerms() {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.day], from: editedDraft.issueDate, to: editedDraft.dueDate)
+        let days = max(0, components.day ?? 0)
+        editedDraft.paymentTerms.daysUntilDue = days
     }
 }
 
