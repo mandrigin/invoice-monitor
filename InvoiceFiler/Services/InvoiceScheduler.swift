@@ -107,9 +107,15 @@ final class InvoiceScheduler: ObservableObject {
 
         let calendar = Calendar.current
 
-        // Calculate the next billing day (in the next month)
+        // Calculate the next billing day
+        // Only advance to next month if the billing day has already passed this month
         var components = calendar.dateComponents([.year, .month], from: date)
-        components.month! += 1
+        let currentDay = calendar.component(.day, from: date)
+        if currentDay >= template.billingDayOfMonth {
+            // Billing day has passed, use next month
+            components.month! += 1
+        }
+        // else: billing day hasn't passed yet, use current month
         components.day = template.billingDayOfMonth
         guard let nextBillingDay = calendar.date(from: components) else {
             completion(.failure(InvoiceSchedulerError.invalidDate))
