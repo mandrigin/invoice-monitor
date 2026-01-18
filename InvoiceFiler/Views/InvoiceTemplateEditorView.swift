@@ -76,10 +76,21 @@ struct InvoiceTemplateEditorView: View {
                             TextField("Template Name", text: $name)
                                 .textFieldStyle(.roundedBorder)
 
-                            Picker("Client", selection: $selectedClient) {
-                                Text("Select Client...").tag("")
-                                ForEach(configManager.companies, id: \.name) { company in
-                                    Text(company.name).tag(company.name)
+                            if configManager.companies.isEmpty {
+                                HStack {
+                                    Text("No clients configured")
+                                        .foregroundColor(.secondary)
+                                    Spacer()
+                                    Text("Add in Preferences → Companies")
+                                        .font(.caption)
+                                        .foregroundColor(.blue)
+                                }
+                            } else {
+                                Picker("Client", selection: $selectedClient) {
+                                    Text("Select Client...").tag("")
+                                    ForEach(configManager.companies, id: \.name) { company in
+                                        Text(company.name).tag(company.name)
+                                    }
                                 }
                             }
 
@@ -225,7 +236,7 @@ struct InvoiceTemplateEditorView: View {
 
     private var isValid: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        !selectedClient.isEmpty &&
+        (configManager.companies.isEmpty || !selectedClient.isEmpty) &&
         !senderName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
@@ -503,6 +514,7 @@ struct ContactDetailsForm: View {
                     Text("Canada").tag("CA")
                     Text("Australia").tag("AU")
                     Text("Netherlands").tag("NL")
+                    Text("Norway").tag("NO")
                     Text("Switzerland").tag("CH")
                     Text("Japan").tag("JP")
                     Text("Singapore").tag("SG")
