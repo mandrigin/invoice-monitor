@@ -101,7 +101,11 @@ struct TemplatesListView: View {
     }
 
     private func generateInvoice(from template: InvoiceTemplate) {
-        _ = scheduler.generateDraft(from: template)
+        scheduler.generateDraft(from: template) { result in
+            if case .failure(let error) = result {
+                print("Failed to generate invoice: \(error)")
+            }
+        }
     }
 }
 

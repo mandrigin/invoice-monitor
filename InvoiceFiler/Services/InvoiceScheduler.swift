@@ -87,10 +87,17 @@ final class InvoiceScheduler: ObservableObject {
 
     // MARK: - Draft Invoice Management
 
-    /// Generate a draft invoice from a template
-    /// Due date is calculated as: next billing day - 1 working day
+    /// Generate a draft invoice from a template (async version with bank holiday support)
+    /// Due date is calculated as:
+    /// 1. Find next month's billing day
+    /// 2. Adjust billing day to previous working day if it falls on weekend/holiday
+    /// 3. Subtract 1 working day from adjusted billing day = DUE DATE
     /// This ensures payment arrives before the billing day (e.g., for salary payments)
-    func generateDraft(from template: InvoiceTemplate, forDate date: Date = Date()) -> DraftInvoice {
+    func generateDraft(
+        from template: InvoiceTemplate,
+        forDate date: Date = Date(),
+        completion: @escaping (Result<DraftInvoice, Error>) -> Void
+    ) {
         let sequence = getNextSequence(for: date)
         let invoiceNumber = InvoiceNumberGenerator.generate(
             clientPrefix: String(template.clientCompanyName.prefix(4)),
@@ -104,21 +111,78 @@ final class InvoiceScheduler: ObservableObject {
         var components = calendar.dateComponents([.year, .month], from: date)
         components.month! += 1
         components.day = template.billingDayOfMonth
-        let nextBillingDay = calendar.date(from: components) ?? date
+        guard let nextBillingDay = calendar.date(from: components) else {
+            completion(.failure(InvoiceSchedulerError.invalidDate))
+            return
+        }
 
-        // Subtract 1 working day from billing day to get due date
-        // This ensures payment arrives BEFORE the billing day
-        let dueDate = previousWorkingDay(before: nextBillingDay)
+        let senderCountry = template.sender.countryCode
+        let recipientCountry = template.recipient.countryCode
+
+        // Step 1: Adjust billing day to previous working day if it falls on weekend/holiday
+        workingDayCalculator.previousWorkingDayOnOrBefore(
+            date: nextBillingDay,
+            senderCountry: senderCountry,
+            recipientCountry: recipientCountry
+        ) { [weak self] adjustedBillingResult in
+            guard let self = self else {
+                completion(.failure(InvoiceSchedulerError.schedulerDeallocated))
+                return
+            }
+
+            switch adjustedBillingResult {
+            case .success(let adjustedBillingDay):
+                // Step 2: Subtract 1 working day from adjusted billing day to get due date
+                self.workingDayCalculator.dateSubtractingWorkingDays(
+                    1,
+                    from: adjustedBillingDay,
+                    senderCountry: senderCountry,
+                    recipientCountry: recipientCountry
+                ) { [weak self] dueDateResult in
+                    guard let self = self else {
+                        completion(.failure(InvoiceSchedulerError.schedulerDeallocated))
+                        return
+                    }
+
+                    switch dueDateResult {
+                    case .success(let dueDate):
+                        DispatchQueue.main.async {
+                            let draft = self.createAndSaveDraft(
+                                from: template,
+                                invoiceNumber: invoiceNumber,
+                                issueDate: date,
+                                dueDate: dueDate
+                            )
+                            completion(.success(draft))
+                        }
+                    case .failure(let error):
+                        completion(.failure(error))
+                    }
+                }
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    /// Create and save a draft invoice (helper for async generateDraft)
+    private func createAndSaveDraft(
+        from template: InvoiceTemplate,
+        invoiceNumber: String,
+        issueDate: Date,
+        dueDate: Date
+    ) -> DraftInvoice {
+        let calendar = Calendar.current
 
         // Calculate payment terms from the due date (due date - issue date)
-        let daysBetween = calendar.dateComponents([.day], from: date, to: dueDate).day ?? template.paymentTerms.daysUntilDue
+        let daysBetween = calendar.dateComponents([.day], from: issueDate, to: dueDate).day ?? template.paymentTerms.daysUntilDue
         var adjustedPaymentTerms = template.paymentTerms
         adjustedPaymentTerms.daysUntilDue = max(0, daysBetween)
 
         var draft = DraftInvoice.fromTemplate(
             template,
             invoiceNumber: invoiceNumber,
-            issueDate: date,
+            issueDate: issueDate,
             dueDate: dueDate
         )
         draft.paymentTerms = adjustedPaymentTerms
@@ -136,22 +200,6 @@ final class InvoiceScheduler: ObservableObject {
         }
 
         return draft
-    }
-
-    /// Get the previous working day before a given date (subtracts 1 working day)
-    /// Uses simple weekend detection; for holiday-aware calculation use WorkingDayCalculator
-    private func previousWorkingDay(before date: Date) -> Date {
-        let calendar = Calendar.current
-        var result = calendar.date(byAdding: .day, value: -1, to: date) ?? date
-
-        // Skip weekends (Saturday = 7, Sunday = 1)
-        var weekday = calendar.component(.weekday, from: result)
-        while weekday == 1 || weekday == 7 {
-            result = calendar.date(byAdding: .day, value: -1, to: result) ?? result
-            weekday = calendar.component(.weekday, from: result)
-        }
-
-        return result
     }
 
     /// Update a draft invoice
@@ -270,8 +318,10 @@ final class InvoiceScheduler: ObservableObject {
                 case .success(let adjustedBillingDate):
                     // Check if today matches the adjusted billing day
                     if calendar.isDate(today, inSameDayAs: adjustedBillingDate) {
-                        DispatchQueue.main.async {
-                            _ = self.generateDraft(from: template, forDate: today)
+                        self.generateDraft(from: template, forDate: today) { result in
+                            if case .failure(let error) = result {
+                                print("Failed to generate draft for template \(template.name): \(error)")
+                            }
                         }
                     }
                 case .failure(let error):
@@ -280,8 +330,10 @@ final class InvoiceScheduler: ObservableObject {
                     // Fall back to simple weekend-only adjustment
                     let fallbackDate = self.fallbackPreviousWorkingDay(onOrBefore: rawBillingDate)
                     if calendar.isDate(today, inSameDayAs: fallbackDate) {
-                        DispatchQueue.main.async {
-                            _ = self.generateDraft(from: template, forDate: today)
+                        self.generateDraft(from: template, forDate: today) { result in
+                            if case .failure(let error) = result {
+                                print("Failed to generate draft for template \(template.name): \(error)")
+                            }
                         }
                     }
                 }
@@ -396,6 +448,22 @@ final class InvoiceScheduler: ObservableObject {
         }
 
         return sequence
+    }
+}
+
+// MARK: - Errors
+
+enum InvoiceSchedulerError: LocalizedError {
+    case invalidDate
+    case schedulerDeallocated
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidDate:
+            return "Failed to calculate billing date"
+        case .schedulerDeallocated:
+            return "Invoice scheduler was deallocated during calculation"
+        }
     }
 }
 
