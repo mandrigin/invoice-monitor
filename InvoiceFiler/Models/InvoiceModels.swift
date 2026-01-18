@@ -291,6 +291,7 @@ struct DraftInvoice: Codable, Identifiable, Equatable, Hashable {
     // Dates
     var issueDate: Date
     var dueDate: Date
+    var dueDateAdjustmentExplanation: String?  // Explains why due date was adjusted (weekends/holidays)
 
     // Content (copied from template, can be edited)
     var lineItems: [LineItem]
@@ -331,6 +332,7 @@ struct DraftInvoice: Codable, Identifiable, Equatable, Hashable {
         invoiceNumber: String,
         issueDate: Date = Date(),
         dueDate: Date,
+        dueDateAdjustmentExplanation: String? = nil,
         lineItems: [LineItem],
         currency: Currency,
         notes: String? = nil,
@@ -345,6 +347,7 @@ struct DraftInvoice: Codable, Identifiable, Equatable, Hashable {
         self.invoiceNumber = invoiceNumber
         self.issueDate = issueDate
         self.dueDate = dueDate
+        self.dueDateAdjustmentExplanation = dueDateAdjustmentExplanation
         self.lineItems = lineItems
         self.currency = currency
         self.notes = notes
@@ -362,13 +365,15 @@ struct DraftInvoice: Codable, Identifiable, Equatable, Hashable {
         _ template: InvoiceTemplate,
         invoiceNumber: String,
         issueDate: Date = Date(),
-        dueDate: Date
+        dueDate: Date,
+        dueDateAdjustmentExplanation: String? = nil
     ) -> DraftInvoice {
         DraftInvoice(
             templateId: template.id,
             invoiceNumber: invoiceNumber,
             issueDate: issueDate,
             dueDate: dueDate,
+            dueDateAdjustmentExplanation: dueDateAdjustmentExplanation,
             lineItems: template.lineItems,
             currency: template.currency,
             notes: template.notes,

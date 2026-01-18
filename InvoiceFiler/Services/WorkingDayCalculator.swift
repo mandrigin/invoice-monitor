@@ -328,6 +328,265 @@ final class WorkingDayCalculator {
 
         return currentDate
     }
+
+    // MARK: - Adjustment Tracking Methods
+
+    /// Get the previous working day on or before the given date, with adjustment tracking
+    func previousWorkingDayOnOrBeforeWithAdjustments(
+        date: Date,
+        senderCountry: String,
+        recipientCountry: String,
+        completion: @escaping (Result<DateAdjustmentResult, Error>) -> Void
+    ) {
+        let year = calendar.component(.year, from: date)
+
+        let group = DispatchGroup()
+        var senderHolidays: [BankHoliday] = []
+        var recipientHolidays: [BankHoliday] = []
+        var fetchError: Error?
+
+        group.enter()
+        bankHolidayService.fetchHolidays(countryCode: senderCountry, year: year) { result in
+            switch result {
+            case .success(let holidays):
+                senderHolidays = holidays
+            case .failure(let error):
+                if fetchError == nil { fetchError = error }
+            }
+            group.leave()
+        }
+
+        group.enter()
+        bankHolidayService.fetchHolidays(countryCode: recipientCountry, year: year) { result in
+            switch result {
+            case .success(let holidays):
+                recipientHolidays = holidays
+            case .failure(let error):
+                if fetchError == nil { fetchError = error }
+            }
+            group.leave()
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else {
+                completion(.failure(WorkingDayError.calculatorDeallocated))
+                return
+            }
+
+            if let error = fetchError {
+                completion(.failure(error))
+                return
+            }
+
+            // Build lookup dictionaries: date string -> holiday info
+            var holidayLookup: [String: (name: String, country: String)] = [:]
+            for holiday in senderHolidays {
+                holidayLookup[holiday.date] = (holiday.name, senderCountry)
+            }
+            for holiday in recipientHolidays {
+                if holidayLookup[holiday.date] == nil {
+                    holidayLookup[holiday.date] = (holiday.name, recipientCountry)
+                }
+            }
+
+            let holidayDates = Set(holidayLookup.keys)
+
+            // Track adjustments
+            var adjustments: [DateAdjustment] = []
+            var currentDate = date
+
+            while self.isWeekend(currentDate) || holidayDates.contains(self.formatDate(currentDate)) {
+                let dateString = self.formatDate(currentDate)
+
+                if self.isWeekend(currentDate) {
+                    let weekday = self.calendar.component(.weekday, from: currentDate)
+                    let dayName = weekday == 1 ? "Sunday" : "Saturday"
+                    adjustments.append(DateAdjustment(
+                        fromDate: currentDate,
+                        reason: .weekend(dayName: dayName)
+                    ))
+                } else if let holidayInfo = holidayLookup[dateString] {
+                    adjustments.append(DateAdjustment(
+                        fromDate: currentDate,
+                        reason: .bankHoliday(name: holidayInfo.name, country: holidayInfo.country)
+                    ))
+                }
+
+                currentDate = self.calendar.date(byAdding: .day, value: -1, to: currentDate) ?? currentDate
+            }
+
+            completion(.success(DateAdjustmentResult(
+                originalDate: date,
+                adjustedDate: currentDate,
+                adjustments: adjustments
+            )))
+        }
+    }
+
+    /// Subtract working days from a date, with adjustment tracking
+    func dateSubtractingWorkingDaysWithAdjustments(
+        _ workingDays: Int,
+        from targetDate: Date,
+        senderCountry: String,
+        recipientCountry: String,
+        completion: @escaping (Result<DateAdjustmentResult, Error>) -> Void
+    ) {
+        let year = calendar.component(.year, from: targetDate)
+        let previousYear = year - 1
+
+        let group = DispatchGroup()
+        var senderHolidays: [BankHoliday] = []
+        var recipientHolidays: [BankHoliday] = []
+        var fetchError: Error?
+
+        for y in [previousYear, year] {
+            group.enter()
+            bankHolidayService.fetchHolidays(countryCode: senderCountry, year: y) { result in
+                switch result {
+                case .success(let holidays):
+                    senderHolidays.append(contentsOf: holidays)
+                case .failure(let error):
+                    if fetchError == nil { fetchError = error }
+                }
+                group.leave()
+            }
+
+            group.enter()
+            bankHolidayService.fetchHolidays(countryCode: recipientCountry, year: y) { result in
+                switch result {
+                case .success(let holidays):
+                    recipientHolidays.append(contentsOf: holidays)
+                case .failure(let error):
+                    if fetchError == nil { fetchError = error }
+                }
+                group.leave()
+            }
+        }
+
+        group.notify(queue: .main) { [weak self] in
+            guard let self = self else {
+                completion(.failure(WorkingDayError.calculatorDeallocated))
+                return
+            }
+
+            if let error = fetchError {
+                completion(.failure(error))
+                return
+            }
+
+            // Build lookup
+            var holidayLookup: [String: (name: String, country: String)] = [:]
+            for holiday in senderHolidays {
+                holidayLookup[holiday.date] = (holiday.name, senderCountry)
+            }
+            for holiday in recipientHolidays {
+                if holidayLookup[holiday.date] == nil {
+                    holidayLookup[holiday.date] = (holiday.name, recipientCountry)
+                }
+            }
+
+            let holidayDates = Set(holidayLookup.keys)
+
+            var currentDate = targetDate
+            var remainingDays = workingDays
+            var adjustments: [DateAdjustment] = []
+
+            while remainingDays > 0 {
+                currentDate = self.calendar.date(byAdding: .day, value: -1, to: currentDate) ?? currentDate
+                let dateString = self.formatDate(currentDate)
+
+                if self.isWeekend(currentDate) {
+                    let weekday = self.calendar.component(.weekday, from: currentDate)
+                    let dayName = weekday == 1 ? "Sunday" : "Saturday"
+                    adjustments.append(DateAdjustment(
+                        fromDate: currentDate,
+                        reason: .weekend(dayName: dayName)
+                    ))
+                } else if holidayDates.contains(dateString) {
+                    if let holidayInfo = holidayLookup[dateString] {
+                        adjustments.append(DateAdjustment(
+                            fromDate: currentDate,
+                            reason: .bankHoliday(name: holidayInfo.name, country: holidayInfo.country)
+                        ))
+                    }
+                } else {
+                    // This is a working day - count it
+                    remainingDays -= 1
+                }
+            }
+
+            // Add final adjustment for "minus N working days"
+            adjustments.append(DateAdjustment(
+                fromDate: targetDate,
+                reason: .workingDaySubtraction(days: workingDays)
+            ))
+
+            completion(.success(DateAdjustmentResult(
+                originalDate: targetDate,
+                adjustedDate: currentDate,
+                adjustments: adjustments
+            )))
+        }
+    }
+}
+
+// MARK: - Adjustment Tracking Types
+
+/// Represents a single date adjustment step
+struct DateAdjustment: Equatable {
+    let fromDate: Date
+    let reason: DateAdjustmentReason
+}
+
+/// Reason for a date adjustment
+enum DateAdjustmentReason: Equatable {
+    case weekend(dayName: String)
+    case bankHoliday(name: String, country: String)
+    case workingDaySubtraction(days: Int)
+
+    var description: String {
+        switch self {
+        case .weekend(let dayName):
+            return dayName
+        case .bankHoliday(let name, let country):
+            return "\(name) (\(country))"
+        case .workingDaySubtraction(let days):
+            return "minus \(days) working day\(days == 1 ? "" : "s")"
+        }
+    }
+}
+
+/// Result of a date adjustment calculation
+struct DateAdjustmentResult {
+    let originalDate: Date
+    let adjustedDate: Date
+    let adjustments: [DateAdjustment]
+
+    /// Generate a human-readable explanation of all adjustments
+    func explanation(dateFormatter: DateFormatter? = nil) -> String? {
+        guard !adjustments.isEmpty else { return nil }
+
+        let formatter = dateFormatter ?? {
+            let f = DateFormatter()
+            f.dateFormat = "MMM d"
+            return f
+        }()
+
+        let originalStr = formatter.string(from: originalDate)
+        let adjustedStr = formatter.string(from: adjustedDate)
+
+        // Group adjustments by type for cleaner output
+        var reasons: [String] = []
+        for adjustment in adjustments {
+            reasons.append(adjustment.reason.description)
+        }
+
+        if reasons.isEmpty {
+            return nil
+        }
+
+        return "Due \(adjustedStr) (from \(originalStr): \(reasons.joined(separator: ", ")))"
+    }
 }
 
 // MARK: - Errors
