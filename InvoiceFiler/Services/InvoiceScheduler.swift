@@ -236,14 +236,16 @@ final class InvoiceScheduler: ObservableObject {
     }
 
     /// Check if any invoices need to be generated today
+    /// Adjusts billing day for weekends and bank holidays
     func checkAndGenerateDrafts() {
         let today = Date()
         let calendar = Calendar.current
-        let dayOfMonth = calendar.component(.day, from: today)
 
         for template in activeTemplates {
-            // Check if today is the billing day
-            guard template.billingDayOfMonth == dayOfMonth else { continue }
+            // Calculate the raw billing date for this month
+            var components = calendar.dateComponents([.year, .month], from: today)
+            components.day = template.billingDayOfMonth
+            guard let rawBillingDate = calendar.date(from: components) else { continue }
 
             // Check if we already generated a draft for this template this month
             let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
@@ -252,11 +254,54 @@ final class InvoiceScheduler: ObservableObject {
                 draft.createdAt >= monthStart
             }
 
-            if existingDraft == nil {
-                // Generate new draft
-                _ = generateDraft(from: template, forDate: today)
+            // Skip if we already have a draft this month
+            guard existingDraft == nil else { continue }
+
+            // Calculate the adjusted billing day (previous working day on or before the raw billing day)
+            // This accounts for weekends and bank holidays in both sender and recipient countries
+            workingDayCalculator.previousWorkingDayOnOrBefore(
+                date: rawBillingDate,
+                senderCountry: template.sender.countryCode,
+                recipientCountry: template.recipient.countryCode
+            ) { [weak self] result in
+                guard let self = self else { return }
+
+                switch result {
+                case .success(let adjustedBillingDate):
+                    // Check if today matches the adjusted billing day
+                    if calendar.isDate(today, inSameDayAs: adjustedBillingDate) {
+                        DispatchQueue.main.async {
+                            _ = self.generateDraft(from: template, forDate: today)
+                        }
+                    }
+                case .failure(let error):
+                    // Log the error but don't fail silently - fall back to simple weekend check
+                    print("Failed to fetch bank holidays for template \(template.name): \(error)")
+                    // Fall back to simple weekend-only adjustment
+                    let fallbackDate = self.fallbackPreviousWorkingDay(onOrBefore: rawBillingDate)
+                    if calendar.isDate(today, inSameDayAs: fallbackDate) {
+                        DispatchQueue.main.async {
+                            _ = self.generateDraft(from: template, forDate: today)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /// Fallback for when bank holiday API is unavailable - only considers weekends
+    private func fallbackPreviousWorkingDay(onOrBefore date: Date) -> Date {
+        let calendar = Calendar.current
+        var result = date
+
+        // Skip weekends (Saturday = 7, Sunday = 1)
+        var weekday = calendar.component(.weekday, from: result)
+        while weekday == 1 || weekday == 7 {
+            result = calendar.date(byAdding: .day, value: -1, to: result) ?? result
+            weekday = calendar.component(.weekday, from: result)
+        }
+
+        return result
     }
 
     /// Calculate when an invoice should be generated based on due date and working days
