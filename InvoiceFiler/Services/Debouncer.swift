@@ -312,19 +312,15 @@ final class Debouncer: DebouncerProtocol {
 
     /// Resolve URL to canonical path (resolving symlinks)
     private func resolveCanonicalPath(_ url: URL) -> String? {
-        do {
-            let resolvedURL = url.resolvingSymlinksInPath()
-            let standardizedPath = resolvedURL.standardized.path
+        let resolvedURL = url.resolvingSymlinksInPath()
+        let standardizedPath = resolvedURL.standardized.path
 
-            // Verify file exists
-            guard FileManager.default.fileExists(atPath: standardizedPath) else {
-                return nil
-            }
-
-            return standardizedPath
-        } catch {
+        // Verify file exists
+        guard FileManager.default.fileExists(atPath: standardizedPath) else {
             return nil
         }
+
+        return standardizedPath
     }
 
     // MARK: - Combine Integration

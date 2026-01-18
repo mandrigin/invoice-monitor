@@ -337,7 +337,7 @@ final class InvoiceProcessor {
             filename: config.enableFilenameHint ? url.lastPathComponent : nil
         )
 
-        guard let matchResult = companyMatch else {
+        guard companyMatch != nil else {
             let result = ProcessingResultData(
                 file: url,
                 extraction: extraction,

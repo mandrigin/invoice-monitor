@@ -330,7 +330,7 @@ extension ConfigManager {
             case .loadFailed(let error):
                 return "Failed to load configuration: \(error.localizedDescription)"
             case .validationFailed(let errors):
-                return "Configuration validation failed:\n" + errors.map { "• \($0.localizedDescription ?? "")" }.joined(separator: "\n")
+                return "Configuration validation failed:\n" + errors.map { "• \($0.localizedDescription)" }.joined(separator: "\n")
             case .directoryCreationFailed(let error):
                 return "Failed to create directory: \(error.localizedDescription)"
             }

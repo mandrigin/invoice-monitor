@@ -244,13 +244,15 @@ final class ProcessingQueue {
         lock.unlock()
 
         // Process on operation queue
-        ocrOperationQueue.addOperation {
-            Task {
-                await handler(item.url)
+        let urlToProcess = item.url
+        ocrOperationQueue.addOperation { [weak self] in
+            Task { [weak self] in
+                await handler(urlToProcess)
 
-                self.lock.lock()
-                self.processingURLs.remove(item.url)
-                self.lock.unlock()
+                guard let self else { return }
+                self.coordinationQueue.sync {
+                    _ = self.processingURLs.remove(urlToProcess)
+                }
 
                 // Process next item
                 self.processNextIfAvailable()
