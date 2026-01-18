@@ -50,6 +50,9 @@ struct InvoiceTemplateEditorView: View {
     @State private var showingAddLineItem = false
     @State private var editingLineItem: LineItem?
 
+    // Company creation
+    @State private var showingAddCompany = false
+
     var body: some View {
         VStack(spacing: 0) {
             // Header
@@ -76,11 +79,19 @@ struct InvoiceTemplateEditorView: View {
                             TextField("Template Name", text: $name)
                                 .textFieldStyle(.roundedBorder)
 
-                            Picker("Client", selection: $selectedClient) {
-                                Text("Select Client...").tag("")
-                                ForEach(configManager.companies, id: \.name) { company in
-                                    Text(company.name).tag(company.name)
+                            HStack {
+                                Picker("Client", selection: $selectedClient) {
+                                    Text("Select Client...").tag("")
+                                    ForEach(configManager.companies, id: \.name) { company in
+                                        Text(company.name).tag(company.name)
+                                    }
                                 }
+
+                                Button(action: { showingAddCompany = true }) {
+                                    Image(systemName: "plus.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Add new client")
                             }
 
                             HStack {
@@ -215,6 +226,11 @@ struct InvoiceTemplateEditorView: View {
                 } else {
                     lineItems.append(item)
                 }
+            }
+        }
+        .sheet(isPresented: $showingAddCompany) {
+            QuickCompanyEditorView { companyName in
+                selectedClient = companyName
             }
         }
     }
@@ -503,6 +519,7 @@ struct ContactDetailsForm: View {
                     Text("Canada").tag("CA")
                     Text("Australia").tag("AU")
                     Text("Netherlands").tag("NL")
+                    Text("Norway").tag("NO")
                     Text("Switzerland").tag("CH")
                     Text("Japan").tag("JP")
                     Text("Singapore").tag("SG")
@@ -530,5 +547,86 @@ struct ContactDetailsForm: View {
             }
         }
         .padding(.vertical, 8)
+    }
+}
+
+// MARK: - Quick Company Editor
+
+struct QuickCompanyEditorView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var configManager = ConfigManager.shared
+
+    let onSave: (String) -> Void
+
+    @State private var companyName: String = ""
+    @State private var countryCode: String = "US"
+    @State private var saveError: String?
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Text("Add New Client")
+                .font(.headline)
+
+            Form {
+                TextField("Company Name", text: $companyName)
+
+                Picker("Country", selection: $countryCode) {
+                    Text("United States").tag("US")
+                    Text("United Kingdom").tag("GB")
+                    Text("Germany").tag("DE")
+                    Text("France").tag("FR")
+                    Text("Canada").tag("CA")
+                    Text("Australia").tag("AU")
+                    Text("Netherlands").tag("NL")
+                    Text("Norway").tag("NO")
+                    Text("Switzerland").tag("CH")
+                    Text("Japan").tag("JP")
+                    Text("Singapore").tag("SG")
+                }
+            }
+            .formStyle(.grouped)
+
+            if let error = saveError {
+                Text(error)
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+
+            HStack {
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button("Add") { save() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(!isValid)
+            }
+        }
+        .padding()
+        .frame(width: 350, height: 250)
+    }
+
+    private var isValid: Bool {
+        !companyName.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    private func save() {
+        let trimmedName = companyName.trimmingCharacters(in: .whitespaces)
+
+        let company = CompanyConfig(
+            name: trimmedName,
+            aliases: [],
+            taxIds: [],
+            domains: [],
+            countryCode: countryCode,
+            defaultPaymentTerms: 30
+        )
+
+        do {
+            try configManager.addCompany(company)
+            onSave(trimmedName)
+            dismiss()
+        } catch {
+            saveError = "Failed to save: \(error.localizedDescription)"
+        }
     }
 }
