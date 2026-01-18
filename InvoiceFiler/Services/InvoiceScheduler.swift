@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import UserNotifications
 
 /// Manages invoice templates and scheduled draft generation
 final class InvoiceScheduler: ObservableObject {
