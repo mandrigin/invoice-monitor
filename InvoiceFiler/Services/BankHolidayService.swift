@@ -75,12 +75,16 @@ final class BankHolidayService {
         }
 
         // Check disk cache
+        var foundInDiskCache = false
         cacheQueue.sync {
             if let cached = diskCache[cacheKey] {
                 cache.setObject(cached as NSArray, forKey: cacheKey as NSString)
                 completion(.success(cached))
-                return
+                foundInDiskCache = true
             }
+        }
+        if foundInDiskCache {
+            return
         }
 
         // Fetch from API
