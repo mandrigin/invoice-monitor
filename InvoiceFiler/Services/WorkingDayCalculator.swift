@@ -252,6 +252,38 @@ final class WorkingDayCalculator {
         }
     }
 
+    /// Get the previous working day on or before the given date
+    /// If the given date is a working day, returns it. Otherwise, returns the most recent prior working day.
+    func previousWorkingDayOnOrBefore(
+        date: Date,
+        senderCountry: String,
+        recipientCountry: String,
+        completion: @escaping (Result<Date, Error>) -> Void
+    ) {
+        isWorkingDay(date: date, senderCountry: senderCountry, recipientCountry: recipientCountry) { [weak self] result in
+            switch result {
+            case .success(let isWorking):
+                if isWorking {
+                    completion(.success(date))
+                } else {
+                    guard let self = self,
+                          let previousDay = self.calendar.date(byAdding: .day, value: -1, to: date) else {
+                        completion(.failure(WorkingDayError.calculatorDeallocated))
+                        return
+                    }
+                    self.previousWorkingDayOnOrBefore(
+                        date: previousDay,
+                        senderCountry: senderCountry,
+                        recipientCountry: recipientCountry,
+                        completion: completion
+                    )
+                }
+            case .failure(let error):
+                completion(.failure(error))
+            }
+        }
+    }
+
     // MARK: - Private Methods
 
     private func isWeekend(_ date: Date) -> Bool {
