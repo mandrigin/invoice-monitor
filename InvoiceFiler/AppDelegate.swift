@@ -322,21 +322,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         Please configure:
         1. At least one directory to monitor
         2. At least one company to match
-
-        Click "Show Config File" to open the configuration file.
         """
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "Show Config File")
-        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Later")
 
         if alert.runModal() == .alertFirstButtonReturn {
             // Create default config file if it doesn't exist
             ConfigManager.shared.createDefaultConfigIfNeeded()
 
-            NSWorkspace.shared.selectFile(
-                ConfigManager.shared.configFileURL.path,
-                inFileViewerRootedAtPath: ""
-            )
+            // Open the Preferences window
+            PreferencesWindowController.shared.showWindow()
         }
     }
 

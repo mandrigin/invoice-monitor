@@ -83,6 +83,28 @@ struct GeneralSettingsView: View {
             } header: {
                 Text("Logging")
             }
+
+            Section {
+                HStack {
+                    Text("Config File:")
+                    Text(configManager.configFileURL.path)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.selectFile(
+                            configManager.configFileURL.path,
+                            inFileViewerRootedAtPath: ""
+                        )
+                    }
+                }
+                Text("Back up this file to preserve your settings")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Advanced")
+            }
         }
         .formStyle(.grouped)
         .padding()

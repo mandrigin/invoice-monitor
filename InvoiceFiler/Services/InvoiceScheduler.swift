@@ -21,8 +21,8 @@ final class InvoiceScheduler: ObservableObject {
     private var schedulerTimer: Timer?
     private let fileManager = FileManager.default
 
-    /// Directory for storing invoice data
-    private var dataDirectory: URL {
+    /// Directory for storing invoice data (templates, drafts, sequences)
+    var dataDirectory: URL {
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         return appSupport.appendingPathComponent("InvoiceFiler").appendingPathComponent("Invoices")
     }

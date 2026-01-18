@@ -215,6 +215,28 @@ struct SchedulingSettingsView: View {
                     scheduler.checkAndGenerateDrafts()
                 }
             }
+
+            Section {
+                HStack {
+                    Text("Invoice Data:")
+                    Text(scheduler.dataDirectory.path)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    Button("Show in Finder") {
+                        NSWorkspace.shared.selectFile(
+                            nil,
+                            inFileViewerRootedAtPath: scheduler.dataDirectory.path
+                        )
+                    }
+                }
+                Text("Contains templates and draft invoices. Back up this folder to preserve your invoice data.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            } header: {
+                Text("Data Location")
+            }
         }
         .formStyle(.grouped)
         .padding()
