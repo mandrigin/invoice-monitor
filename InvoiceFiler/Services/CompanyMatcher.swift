@@ -265,7 +265,7 @@ final class CompanyMatcher {
         }
 
         // Base confidence is highest signal
-        var baseConfidence = signals.map(\.confidence).max() ?? 0.0
+        let baseConfidence = signals.map(\.confidence).max() ?? 0.0
 
         // Multi-signal boost (per spec)
         let multiSignalBoost = min(
