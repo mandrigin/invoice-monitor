@@ -11,6 +11,7 @@ struct DraftInvoiceEditorView: View {
     @State private var showingPreview = false
     @State private var showingAddLineItem = false
     @State private var editingLineItem: LineItem?
+    @State private var showingDiscardConfirmation = false
 
     init(draft: DraftInvoice) {
         self.draft = draft
@@ -153,6 +154,12 @@ struct DraftInvoiceEditorView: View {
                 }
                 .keyboardShortcut(.cancelAction)
 
+                if editedDraft.status == .pending {
+                    Button("Discard Draft", role: .destructive) {
+                        showingDiscardConfirmation = true
+                    }
+                }
+
                 Spacer()
 
                 if editedDraft.status == .pending {
@@ -174,6 +181,14 @@ struct DraftInvoiceEditorView: View {
                 }
             }
             .padding()
+        }
+        .alert("Discard Draft Invoice?", isPresented: $showingDiscardConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Discard", role: .destructive) {
+                discardDraft()
+            }
+        } message: {
+            Text("Are you sure you want to discard invoice \(editedDraft.invoiceNumber)? This action cannot be undone.")
         }
     }
 
@@ -232,6 +247,11 @@ struct DraftInvoiceEditorView: View {
 
     private func markAsSent() {
         scheduler.markDraftAsSent(editedDraft)
+        dismiss()
+    }
+
+    private func discardDraft() {
+        scheduler.deleteDraft(editedDraft)
         dismiss()
     }
 
@@ -451,6 +471,8 @@ struct DraftsListView: View {
     @State private var selectedDraft: DraftInvoice?
     @State private var showingEditor = false
     @State private var filterStatus: DraftInvoiceStatus?
+    @State private var draftToDelete: DraftInvoice?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -488,6 +510,22 @@ struct DraftsListView: View {
                 List(filteredDrafts, selection: $selectedDraft) { draft in
                     DraftInvoiceRow(draft: draft)
                         .tag(draft)
+                        .contextMenu {
+                            Button("Edit") {
+                                selectedDraft = draft
+                                showingEditor = true
+                            }
+                            Divider()
+                            if draft.status == .pending {
+                                Button("Cancel Draft") {
+                                    scheduler.cancelDraft(draft)
+                                }
+                            }
+                            Button("Delete", role: .destructive) {
+                                draftToDelete = draft
+                                showingDeleteConfirmation = true
+                            }
+                        }
                 }
             }
         }
@@ -499,6 +537,21 @@ struct DraftsListView: View {
         .sheet(isPresented: $showingEditor) {
             if let draft = selectedDraft {
                 DraftInvoiceEditorView(draft: draft)
+            }
+        }
+        .alert("Delete Draft Invoice?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                draftToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let draft = draftToDelete {
+                    scheduler.deleteDraft(draft)
+                }
+                draftToDelete = nil
+            }
+        } message: {
+            if let draft = draftToDelete {
+                Text("Are you sure you want to permanently delete invoice \(draft.invoiceNumber)? This action cannot be undone.")
             }
         }
     }
