@@ -86,6 +86,14 @@ struct DraftInvoiceEditorView: View {
                                 recalculatePaymentTerms()
                             }
 
+                            // Display due date adjustment explanation if present
+                            if let explanation = editedDraft.dueDateAdjustmentExplanation {
+                                Text(explanation)
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                    .padding(.vertical, 2)
+                            }
+
                             // Display calculated payment terms
                             Text("Payment Terms: \(editedDraft.paymentTerms.displayText)")
                                 .font(.caption)
@@ -654,9 +662,17 @@ struct DraftInvoiceRow: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(draft.currency.format(draft.total))
                     .fontWeight(.medium)
-                Text("Due: \(dateFormatter.string(from: draft.dueDate))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                HStack(spacing: 4) {
+                    Text("Due: \(dateFormatter.string(from: draft.dueDate))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    if draft.dueDateAdjustmentExplanation != nil {
+                        Image(systemName: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .help(draft.dueDateAdjustmentExplanation ?? "")
+                    }
+                }
             }
         }
         .padding(.vertical, 4)

@@ -120,22 +120,22 @@ final class InvoiceScheduler: ObservableObject {
         let recipientCountry = template.recipient.countryCode
 
         // Step 1: Adjust billing day to previous working day if it falls on weekend/holiday
-        workingDayCalculator.previousWorkingDayOnOrBefore(
+        workingDayCalculator.previousWorkingDayOnOrBeforeWithAdjustments(
             date: nextBillingDay,
             senderCountry: senderCountry,
             recipientCountry: recipientCountry
-        ) { [weak self] adjustedBillingResult in
+        ) { [weak self] billingAdjustmentResult in
             guard let self = self else {
                 completion(.failure(InvoiceSchedulerError.schedulerDeallocated))
                 return
             }
 
-            switch adjustedBillingResult {
-            case .success(let adjustedBillingDay):
+            switch billingAdjustmentResult {
+            case .success(let billingAdjustment):
                 // Step 2: Subtract 1 working day from adjusted billing day to get due date
-                self.workingDayCalculator.dateSubtractingWorkingDays(
+                self.workingDayCalculator.dateSubtractingWorkingDaysWithAdjustments(
                     1,
-                    from: adjustedBillingDay,
+                    from: billingAdjustment.adjustedDate,
                     senderCountry: senderCountry,
                     recipientCountry: recipientCountry
                 ) { [weak self] dueDateResult in
@@ -145,13 +145,21 @@ final class InvoiceScheduler: ObservableObject {
                     }
 
                     switch dueDateResult {
-                    case .success(let dueDate):
+                    case .success(let dueDateAdjustment):
                         DispatchQueue.main.async {
+                            // Build the explanation string
+                            let explanation = self.buildDueDateExplanation(
+                                originalBillingDay: nextBillingDay,
+                                billingAdjustment: billingAdjustment,
+                                dueDateAdjustment: dueDateAdjustment
+                            )
+
                             let draft = self.createAndSaveDraft(
                                 from: template,
                                 invoiceNumber: invoiceNumber,
                                 issueDate: date,
-                                dueDate: dueDate
+                                dueDate: dueDateAdjustment.adjustedDate,
+                                dueDateAdjustmentExplanation: explanation
                             )
                             completion(.success(draft))
                         }
@@ -165,12 +173,62 @@ final class InvoiceScheduler: ObservableObject {
         }
     }
 
+    /// Build a human-readable explanation of due date adjustments
+    private func buildDueDateExplanation(
+        originalBillingDay: Date,
+        billingAdjustment: DateAdjustmentResult,
+        dueDateAdjustment: DateAdjustmentResult
+    ) -> String? {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM d"
+
+        var steps: [String] = []
+
+        // Original billing day
+        let originalStr = dateFormatter.string(from: originalBillingDay)
+
+        // Billing day adjustments (weekend/holiday)
+        for adjustment in billingAdjustment.adjustments {
+            let fromStr = dateFormatter.string(from: adjustment.fromDate)
+            switch adjustment.reason {
+            case .weekend(let dayName):
+                steps.append("\(fromStr) (\(dayName)) → skip")
+            case .bankHoliday(let name, let country):
+                steps.append("\(fromStr) (\(name), \(country)) → skip")
+            case .workingDaySubtraction:
+                break
+            }
+        }
+
+        // Due date adjustments (minus working days, skipping non-working days)
+        for adjustment in dueDateAdjustment.adjustments {
+            switch adjustment.reason {
+            case .weekend(let dayName):
+                let fromStr = dateFormatter.string(from: adjustment.fromDate)
+                steps.append("\(fromStr) (\(dayName)) → skip")
+            case .bankHoliday(let name, let country):
+                let fromStr = dateFormatter.string(from: adjustment.fromDate)
+                steps.append("\(fromStr) (\(name), \(country)) → skip")
+            case .workingDaySubtraction(let days):
+                steps.append("minus \(days) working day\(days == 1 ? "" : "s")")
+            }
+        }
+
+        if steps.isEmpty {
+            return nil
+        }
+
+        let finalStr = dateFormatter.string(from: dueDateAdjustment.adjustedDate)
+        return "Due \(finalStr) (from billing day \(originalStr): \(steps.joined(separator: ", ")))"
+    }
+
     /// Create and save a draft invoice (helper for async generateDraft)
     private func createAndSaveDraft(
         from template: InvoiceTemplate,
         invoiceNumber: String,
         issueDate: Date,
-        dueDate: Date
+        dueDate: Date,
+        dueDateAdjustmentExplanation: String? = nil
     ) -> DraftInvoice {
         let calendar = Calendar.current
 
@@ -183,7 +241,8 @@ final class InvoiceScheduler: ObservableObject {
             template,
             invoiceNumber: invoiceNumber,
             issueDate: issueDate,
-            dueDate: dueDate
+            dueDate: dueDate,
+            dueDateAdjustmentExplanation: dueDateAdjustmentExplanation
         )
         draft.paymentTerms = adjustedPaymentTerms
 
