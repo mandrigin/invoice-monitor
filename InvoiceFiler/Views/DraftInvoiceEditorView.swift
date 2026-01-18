@@ -12,6 +12,8 @@ struct DraftInvoiceEditorView: View {
     @State private var showingAddLineItem = false
     @State private var editingLineItem: LineItem?
     @State private var showingDiscardConfirmation = false
+    @State private var showingFolderPicker = false
+    @State private var pendingExportAction: (() -> Void)?
 
     init(draft: DraftInvoice) {
         self.draft = draft
@@ -39,6 +41,13 @@ struct DraftInvoiceEditorView: View {
                 } else {
                     editedDraft.lineItems.append(item)
                 }
+            }
+        }
+        .sheet(isPresented: $showingFolderPicker) {
+            ExportFolderPickerView(
+                monitoredPaths: ConfigManager.shared.config.monitoredPaths
+            ) { selectedPath in
+                performExport(to: selectedPath)
             }
         }
     }
@@ -256,6 +265,30 @@ struct DraftInvoiceEditorView: View {
     }
 
     private func exportPDF() {
+        let config = ConfigManager.shared.config
+        let monitoredPaths = config.monitoredPaths
+
+        // If multiple monitored paths exist, show picker
+        if monitoredPaths.count > 1 {
+            pendingExportAction = nil  // Will be set when user picks
+            showingFolderPicker = true
+            return
+        }
+
+        // Use first monitored path, or fall back to Documents if none configured
+        let destinationRoot: URL
+        if let firstPath = monitoredPaths.first {
+            destinationRoot = firstPath.path
+        } else if let configuredRoot = config.destinationRoot {
+            destinationRoot = configuredRoot
+        } else {
+            destinationRoot = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        }
+
+        performExport(to: destinationRoot)
+    }
+
+    private func performExport(to destinationRoot: URL) {
         // 1. Generate filename from invoice number
         let sanitizedNumber = editedDraft.invoiceNumber
             .replacingOccurrences(of: "/", with: "-")
@@ -263,17 +296,8 @@ struct DraftInvoiceEditorView: View {
         let filename = "\(sanitizedNumber).pdf"
 
         // 2. Determine destination folder using Organizer pattern
-        let config = ConfigManager.shared.config
         let organizer = Organizer.fromConfig()
         let folderName = organizer.invoiceFolderName(for: editedDraft.issueDate)
-
-        // Use destinationRoot if configured, otherwise use Documents folder
-        let destinationRoot: URL
-        if let configuredRoot = config.destinationRoot {
-            destinationRoot = configuredRoot
-        } else {
-            destinationRoot = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        }
 
         let destinationFolder = destinationRoot.appendingPathComponent(folderName)
         let destinationPath = destinationFolder.appendingPathComponent(filename)
@@ -679,5 +703,58 @@ struct DraftInvoiceRow: View {
         case .sent: return .green
         case .cancelled: return .red
         }
+    }
+}
+
+// MARK: - Export Folder Picker
+
+struct ExportFolderPickerView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let monitoredPaths: [MonitoredPath]
+    let onSelect: (URL) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Text("Choose Export Folder")
+                    .font(.headline)
+                Spacer()
+                Button("Cancel") {
+                    dismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+            }
+            .padding()
+
+            Divider()
+
+            // Folder list
+            List(monitoredPaths, id: \.path) { monitoredPath in
+                Button(action: {
+                    dismiss()
+                    onSelect(monitoredPath.path)
+                }) {
+                    HStack {
+                        Image(systemName: "folder")
+                            .foregroundColor(.blue)
+                        VStack(alignment: .leading) {
+                            Text(monitoredPath.path.lastPathComponent)
+                                .fontWeight(.medium)
+                            Text(monitoredPath.path.path)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 400, height: 300)
     }
 }
