@@ -1,10 +1,12 @@
 import Cocoa
+import Combine
 
 /// Represents the current status of the Invoice Filer for badge display
 enum StatusBadge {
     case idle           // Green - everything normal
     case processing     // Yellow - currently processing a file
     case error          // Red - recent error occurred
+    case pendingDrafts  // Orange - draft invoices awaiting review
 
     var symbolName: String {
         switch self {
@@ -14,6 +16,8 @@ enum StatusBadge {
             return "doc.text.magnifyingglass"
         case .error:
             return "exclamationmark.triangle"
+        case .pendingDrafts:
+            return "doc.text.magnifyingglass"
         }
     }
 
@@ -25,6 +29,8 @@ enum StatusBadge {
             return .systemYellow
         case .error:
             return .systemRed
+        case .pendingDrafts:
+            return .systemOrange
         }
     }
 }
@@ -62,15 +68,23 @@ final class StatusMenuController {
     private var stats = ProcessingStats()
     private var lastProcessedFile: ProcessedFileInfo?
 
+    // Pending drafts tracking
+    private var cancellables = Set<AnyCancellable>()
+    private var pendingDraftsCount: Int = 0
+    private var isProcessing: Bool = false
+    private var hasError: Bool = false
+
     // Menu items that need dynamic updates
     private weak var statusMenuItem: NSMenuItem?
     private weak var statsMenuItem: NSMenuItem?
     private weak var lastFileMenuItem: NSMenuItem?
+    private weak var pendingDraftsMenuItem: NSMenuItem?
 
     // MARK: - Initialization
 
     init() {
         setupStatusItem()
+        subscribeToPendingDrafts()
     }
 
     // MARK: - Status Item Setup
@@ -118,6 +132,13 @@ final class StatusMenuController {
 
         menu.addItem(NSMenuItem.separator())
 
+        // Pending drafts indicator (hidden by default)
+        let pendingDraftsItem = NSMenuItem(title: "", action: #selector(openInvoicingAction(_:)), keyEquivalent: "")
+        pendingDraftsItem.target = self
+        pendingDraftsItem.isHidden = true
+        self.pendingDraftsMenuItem = pendingDraftsItem
+        menu.addItem(pendingDraftsItem)
+
         // Invoicing
         let invoicingItem = NSMenuItem(title: "Invoice Management...", action: #selector(openInvoicingAction(_:)), keyEquivalent: "i")
         invoicingItem.target = self
@@ -155,6 +176,7 @@ final class StatusMenuController {
     func startProcessingAnimation() {
         guard animationTimer == nil else { return }
 
+        isProcessing = true
         setBadge(.processing)
         animationFrame = 0
 
@@ -168,7 +190,8 @@ final class StatusMenuController {
         animationTimer?.invalidate()
         animationTimer = nil
         animationFrame = 0
-        setBadge(.idle)
+        isProcessing = false
+        refreshBadge()
     }
 
     /// Record a successful file operation
@@ -202,13 +225,15 @@ final class StatusMenuController {
             outcome: "Error: \(error)",
             timestamp: Date()
         )
+        hasError = true
         setBadge(.error)
         updateLastFileMenuItem()
 
         // Auto-clear error badge after 30 seconds
         DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
             if self?.currentBadge == .error {
-                self?.setBadge(.idle)
+                self?.hasError = false
+                self?.refreshBadge()
             }
         }
     }
@@ -319,6 +344,8 @@ final class StatusMenuController {
             statusText = "Status: Processing..."
         case .error:
             statusText = "Status: Error"
+        case .pendingDrafts:
+            statusText = "Status: \(pendingDraftsCount) draft\(pendingDraftsCount == 1 ? "" : "s") pending"
         }
         statusMenuItem?.title = statusText
     }
@@ -353,6 +380,41 @@ final class StatusMenuController {
     private func openPreferences() {
         // Post notification for AppDelegate or PreferencesController to handle
         NotificationCenter.default.post(name: .openPreferences, object: nil)
+    }
+
+    // MARK: - Pending Drafts Subscription
+
+    private func subscribeToPendingDrafts() {
+        InvoiceScheduler.shared.$pendingDrafts
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] drafts in
+                self?.pendingDraftsCount = drafts.count
+                self?.updatePendingDraftsMenuItem(count: drafts.count)
+                self?.refreshBadge()
+            }
+            .store(in: &cancellables)
+    }
+
+    private func updatePendingDraftsMenuItem(count: Int) {
+        if count > 0 {
+            pendingDraftsMenuItem?.title = "⚠️ \(count) draft invoice\(count == 1 ? "" : "s") pending review"
+            pendingDraftsMenuItem?.isHidden = false
+        } else {
+            pendingDraftsMenuItem?.isHidden = true
+        }
+    }
+
+    /// Refresh badge based on current state priorities: error > processing > pendingDrafts > idle
+    private func refreshBadge() {
+        if hasError {
+            setBadge(.error)
+        } else if isProcessing {
+            setBadge(.processing)
+        } else if pendingDraftsCount > 0 {
+            setBadge(.pendingDrafts)
+        } else {
+            setBadge(.idle)
+        }
     }
 }
 
