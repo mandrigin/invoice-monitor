@@ -110,19 +110,23 @@ final class InvoiceScheduler: ObservableObject {
 
         // Calculate the billing day for the target month
         // The billing day is when money should BE on the account
-        // We need to find the billing day that corresponds to this generation
-        // Generation happens at billing_day - payment_terms, so we calculate forward
+        // If the billing day hasn't passed yet this month, use this month
+        // If the billing day has already passed, use next month
         var components = calendar.dateComponents([.year, .month], from: date)
-        // Add payment terms to get to the target billing month
-        if let futureDate = calendar.date(byAdding: .day, value: template.paymentTerms.daysUntilDue, to: date) {
-            let futureComponents = calendar.dateComponents([.year, .month], from: futureDate)
-            components.year = futureComponents.year
-            components.month = futureComponents.month
-        }
         components.day = template.billingDayOfMonth
-        guard let targetBillingDay = calendar.date(from: components) else {
+        guard var targetBillingDay = calendar.date(from: components) else {
             completion(.failure(InvoiceSchedulerError.invalidDate))
             return
+        }
+
+        // If the billing day has already passed this month, use next month
+        if targetBillingDay < date {
+            components.month! += 1
+            guard let nextMonthBillingDay = calendar.date(from: components) else {
+                completion(.failure(InvoiceSchedulerError.invalidDate))
+                return
+            }
+            targetBillingDay = nextMonthBillingDay
         }
 
         let senderCountry = template.sender.countryCode
