@@ -90,7 +90,8 @@ final class InvoiceScheduler: ObservableObject {
     /// Generate a draft invoice from a template (async version with bank holiday support)
     /// Due date is calculated as:
     /// 1. Find the billing day (when money should be on account)
-    /// 2. Adjust billing day to previous working day if it falls on weekend/holiday = DUE DATE
+    /// 2. Adjust billing day to previous working day if it falls on weekend/holiday
+    /// 3. Subtract 1 working day = DUE DATE (so payment clears before billing day)
     /// Issue date is set to the generation date (today)
     func generateDraft(
         from template: InvoiceTemplate,
@@ -133,7 +134,7 @@ final class InvoiceScheduler: ObservableObject {
         let recipientCountry = template.recipient.countryCode
 
         // Adjust billing day to previous working day if it falls on weekend/holiday
-        // This adjusted date becomes the DUE DATE (when money should be on account)
+        // This gives us the effective billing day (when money should be on account)
         workingDayCalculator.previousWorkingDayOnOrBeforeWithAdjustments(
             date: targetBillingDay,
             senderCountry: senderCountry,
@@ -146,23 +147,50 @@ final class InvoiceScheduler: ObservableObject {
 
             switch billingAdjustmentResult {
             case .success(let billingAdjustment):
-                DispatchQueue.main.async {
-                    // Build the explanation string
-                    let explanation = self.buildDueDateExplanation(
-                        originalBillingDay: targetBillingDay,
-                        billingAdjustment: billingAdjustment
-                    )
+                // Now subtract 1 working day from the adjusted billing day to get the due date
+                // Due date = 1 working day BEFORE billing day (so payment clears in time)
+                self.workingDayCalculator.dateSubtractingWorkingDaysWithAdjustments(
+                    1,
+                    from: billingAdjustment.adjustedDate,
+                    senderCountry: senderCountry,
+                    recipientCountry: recipientCountry
+                ) { [weak self] dueDateResult in
+                    guard let self = self else {
+                        completion(.failure(InvoiceSchedulerError.schedulerDeallocated))
+                        return
+                    }
 
-                    // Due date = adjusted billing day (when money should be on account)
-                    // Issue date = today (when invoice is generated)
-                    let draft = self.createAndSaveDraft(
-                        from: template,
-                        invoiceNumber: invoiceNumber,
-                        issueDate: date,
-                        dueDate: billingAdjustment.adjustedDate,
-                        dueDateAdjustmentExplanation: explanation
-                    )
-                    completion(.success(draft))
+                    switch dueDateResult {
+                    case .success(let dueDateAdjustment):
+                        DispatchQueue.main.async {
+                            // Combine adjustments from both steps for the explanation
+                            let combinedAdjustments = billingAdjustment.adjustments + dueDateAdjustment.adjustments
+                            let combinedResult = DateAdjustmentResult(
+                                originalDate: targetBillingDay,
+                                adjustedDate: dueDateAdjustment.adjustedDate,
+                                adjustments: combinedAdjustments
+                            )
+
+                            // Build the explanation string
+                            let explanation = self.buildDueDateExplanation(
+                                originalBillingDay: targetBillingDay,
+                                billingAdjustment: combinedResult
+                            )
+
+                            // Due date = 1 working day before adjusted billing day
+                            // Issue date = today (when invoice is generated)
+                            let draft = self.createAndSaveDraft(
+                                from: template,
+                                invoiceNumber: invoiceNumber,
+                                issueDate: date,
+                                dueDate: dueDateAdjustment.adjustedDate,
+                                dueDateAdjustmentExplanation: explanation
+                            )
+                            completion(.success(draft))
+                        }
+                    case .failure(let error):
+                        completion(.failure(error))
+                    }
                 }
             case .failure(let error):
                 completion(.failure(error))
@@ -183,7 +211,7 @@ final class InvoiceScheduler: ObservableObject {
         // Original billing day
         let originalStr = dateFormatter.string(from: originalBillingDay)
 
-        // Billing day adjustments (weekend/holiday)
+        // Billing day adjustments (weekend/holiday) and working day subtraction
         for adjustment in billingAdjustment.adjustments {
             let fromStr = dateFormatter.string(from: adjustment.fromDate)
             switch adjustment.reason {
@@ -191,16 +219,16 @@ final class InvoiceScheduler: ObservableObject {
                 steps.append("\(fromStr) (\(dayName)) → skip")
             case .bankHoliday(let name, let country):
                 steps.append("\(fromStr) (\(name), \(country)) → skip")
-            case .workingDaySubtraction:
-                break
+            case .workingDaySubtraction(let days):
+                steps.append("minus \(days) working day\(days == 1 ? "" : "s")")
             }
         }
 
-        if steps.isEmpty {
-            return nil
-        }
-
+        // Always show explanation since we now always subtract 1 working day
         let finalStr = dateFormatter.string(from: billingAdjustment.adjustedDate)
+        if steps.isEmpty {
+            return "Due \(finalStr) (1 working day before billing day \(originalStr))"
+        }
         return "Due \(finalStr) (from billing day \(originalStr): \(steps.joined(separator: ", ")))"
     }
 
