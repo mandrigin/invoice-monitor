@@ -82,20 +82,28 @@ Click **Save** to create the template. If **Active** is enabled and **Invoice Sc
 
 Invoice Filer uses a smart system to calculate when invoices are generated and when they're due.
 
-### The Billing Day (Due Date)
+### The Billing Day
 
-The **Billing Day** is the day of the month when you need money **on your account**. This becomes the invoice due date. You can set this from 1 to 28 (to avoid issues with shorter months).
+The **Billing Day** is the day of the month when you need money **on your account**. You can set this from 1 to 28 (to avoid issues with shorter months).
 
-**Example**: If your billing day is 15, that means you need payment to arrive by the 15th of each month.
+**Example**: If your billing day is the 24th, that means you need the payment to have arrived by the 24th of each month.
 
 ### How Due Dates Are Calculated
+
+The due date is set **1 working day before** the billing day, giving the payment time to clear:
 
 1. **Start with the billing day**
    - This is when money should BE on your account
 
-2. **Adjust for non-working days**
+2. **Adjust billing day for non-working days**
    - If the billing day falls on a Saturday, Sunday, or bank holiday, it moves to the previous working day
-   - Example: If the 15th is Saturday → due date becomes the 14th (Friday)
+   - Example: If the 24th is Sunday → adjusted billing day becomes the 22nd (Friday)
+
+3. **Subtract 1 working day**
+   - Due date = adjusted billing day minus 1 working day
+   - Example: Adjusted billing day is Friday 24th → due date is Thursday 23rd
+
+This ensures the client pays on Thursday, and the money arrives on Friday (the billing day).
 
 ### How Generation Dates Are Calculated
 
@@ -117,7 +125,7 @@ The app shows when each template will next auto-generate:
 ### Why This Matters
 
 This calculation ensures:
-- **Billing day = Due date**: Money arrives when you need it
+- **Payment clears on time**: Due date is 1 working day before billing day, so money arrives when you need it
 - **Automatic timing**: Invoices generate early enough for payment terms
 - **Working days only**: Both generation and due dates fall on business days
 - **Holiday awareness**: Bank holidays in both your country and your client's country are respected
