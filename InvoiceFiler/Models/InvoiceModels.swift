@@ -212,6 +212,9 @@ struct InvoiceTemplate: Codable, Identifiable, Equatable, Hashable {
     var name: String
     var clientCompanyName: String  // Links to CompanyConfig by name
 
+    // Invoice numbering
+    var invoiceNumberPrefix: String?  // Custom prefix for invoice numbers (e.g., "ACME", "BRAND")
+
     // Content
     var lineItems: [LineItem]
     var currency: Currency
@@ -239,6 +242,7 @@ struct InvoiceTemplate: Codable, Identifiable, Equatable, Hashable {
         id: UUID = UUID(),
         name: String,
         clientCompanyName: String,
+        invoiceNumberPrefix: String? = nil,
         lineItems: [LineItem] = [],
         currency: Currency = .usd,
         notes: String? = nil,
@@ -252,6 +256,7 @@ struct InvoiceTemplate: Codable, Identifiable, Equatable, Hashable {
         self.id = id
         self.name = name
         self.clientCompanyName = clientCompanyName
+        self.invoiceNumberPrefix = invoiceNumberPrefix
         self.lineItems = lineItems
         self.currency = currency
         self.notes = notes

@@ -12,6 +12,7 @@ struct InvoiceTemplateEditorView: View {
     // Form state
     @State private var name: String = ""
     @State private var selectedClient: String = ""
+    @State private var invoiceNumberPrefix: String = ""
     @State private var currency: Currency = .usd
     @State private var lineItems: [LineItem] = []
     @State private var notes: String = ""
@@ -92,6 +93,16 @@ struct InvoiceTemplateEditorView: View {
                                         Text(company.name).tag(company.name)
                                     }
                                 }
+                            }
+
+                            HStack {
+                                TextField("Invoice Number Prefix", text: $invoiceNumberPrefix)
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 150)
+                                Text("e.g., ACME → ACME-202601-001")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Spacer()
                             }
 
                             HStack {
@@ -245,6 +256,7 @@ struct InvoiceTemplateEditorView: View {
 
         name = template.name
         selectedClient = template.clientCompanyName
+        invoiceNumberPrefix = template.invoiceNumberPrefix ?? ""
         currency = template.currency
         lineItems = template.lineItems
         notes = template.notes ?? ""
@@ -307,10 +319,12 @@ struct InvoiceTemplateEditorView: View {
 
         let paymentTerms = PaymentTerms(daysUntilDue: paymentDays)
 
+        let trimmedPrefix = invoiceNumberPrefix.trimmingCharacters(in: .whitespaces)
         var newTemplate = InvoiceTemplate(
             id: template?.id ?? UUID(),
             name: name.trimmingCharacters(in: .whitespaces),
             clientCompanyName: selectedClient,
+            invoiceNumberPrefix: trimmedPrefix.isEmpty ? nil : trimmedPrefix,
             lineItems: lineItems,
             currency: currency,
             notes: notes.isEmpty ? nil : notes,

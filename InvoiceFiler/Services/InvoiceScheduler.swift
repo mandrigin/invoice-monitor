@@ -98,8 +98,10 @@ final class InvoiceScheduler: ObservableObject {
         completion: @escaping (Result<DraftInvoice, Error>) -> Void
     ) {
         let sequence = getNextSequence(for: date)
+        // Use template's custom prefix if set, otherwise derive from client company name
+        let prefix = template.invoiceNumberPrefix ?? String(template.clientCompanyName.prefix(4))
         let invoiceNumber = InvoiceNumberGenerator.generate(
-            clientPrefix: String(template.clientCompanyName.prefix(4)),
+            clientPrefix: prefix,
             date: date,
             sequence: sequence
         )
