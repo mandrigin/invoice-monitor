@@ -14,6 +14,7 @@ struct DraftInvoiceEditorView: View {
     @State private var showingDiscardConfirmation = false
     @State private var showingFolderPicker = false
     @State private var pendingExportAction: (() -> Void)?
+    @State private var nextGenerationDate: Date?
 
     init(draft: DraftInvoice) {
         self.draft = draft
@@ -107,8 +108,21 @@ struct DraftInvoiceEditorView: View {
                             Text("Payment Terms: \(editedDraft.paymentTerms.displayText)")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+
+                            // Display next auto-generation date
+                            if let nextDate = nextGenerationDate {
+                                let formatter = DateFormatter()
+                                let _ = formatter.dateFormat = "MMM d, yyyy"
+                                Text("Next invoice will be auto-generated on \(formatter.string(from: nextDate))")
+                                    .font(.caption)
+                                    .foregroundColor(.orange)
+                                    .padding(.top, 4)
+                            }
                         }
                         .padding(.vertical, 8)
+                    }
+                    .onAppear {
+                        loadNextGenerationDate()
                     }
 
                     // Line Items
@@ -362,6 +376,26 @@ struct DraftInvoiceEditorView: View {
         let components = calendar.dateComponents([.day], from: editedDraft.issueDate, to: editedDraft.dueDate)
         let days = max(0, components.day ?? 0)
         editedDraft.paymentTerms.daysUntilDue = days
+    }
+
+    private func loadNextGenerationDate() {
+        // Find the template for this draft
+        guard let template = scheduler.templates.first(where: { $0.id == draft.templateId }),
+              template.isActive else {
+            return
+        }
+
+        // Use fallback for immediate display
+        nextGenerationDate = scheduler.calculateNextGenerationDateFallback(for: template)
+
+        // Then update with async result (includes bank holidays)
+        scheduler.calculateNextGenerationDate(for: template) { result in
+            DispatchQueue.main.async {
+                if case .success(let date) = result {
+                    nextGenerationDate = date
+                }
+            }
+        }
     }
 }
 

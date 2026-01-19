@@ -111,6 +111,16 @@ struct TemplatesListView: View {
 
 struct TemplateRow: View {
     let template: InvoiceTemplate
+    @ObservedObject private var scheduler = InvoiceScheduler.shared
+    @State private var nextGenerationDate: Date?
+
+    private var nextGenerationDateText: String {
+        guard template.isActive else { return "Inactive" }
+        guard let date = nextGenerationDate else { return "Calculating..." }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM d"
+        return "Next: \(formatter.string(from: date))"
+    }
 
     var body: some View {
         HStack {
@@ -130,6 +140,11 @@ struct TemplateRow: View {
                 Text(template.clientCompanyName)
                     .font(.caption)
                     .foregroundColor(.secondary)
+                if template.isActive {
+                    Text(nextGenerationDateText)
+                        .font(.caption)
+                        .foregroundColor(.orange)
+                }
             }
 
             Spacer()
@@ -137,12 +152,29 @@ struct TemplateRow: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(template.currency.format(template.subtotal))
                     .fontWeight(.medium)
-                Text("Day \(template.billingDayOfMonth) of month")
+                Text("Due day \(template.billingDayOfMonth)")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
         }
         .padding(.vertical, 4)
+        .onAppear {
+            loadNextGenerationDate()
+        }
+    }
+
+    private func loadNextGenerationDate() {
+        guard template.isActive else { return }
+        // Use fallback for immediate display, then update with async result
+        nextGenerationDate = scheduler.calculateNextGenerationDateFallback(for: template)
+
+        scheduler.calculateNextGenerationDate(for: template) { result in
+            DispatchQueue.main.async {
+                if case .success(let date) = result {
+                    nextGenerationDate = date
+                }
+            }
+        }
     }
 }
 
