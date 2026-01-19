@@ -33,7 +33,7 @@ Templates are the foundation for generating recurring invoices. Each template de
 | **Client** | Select from your configured companies |
 | **Currency** | The invoice currency (USD, EUR, GBP, etc.) |
 | **Active** | Whether this template generates invoices automatically |
-| **Billing Day** | Day of month to generate (1-28) |
+| **Billing Day** | Day of month when payment should arrive (1-28). This is the due date. |
 | **Payment Terms** | Net days until payment is due |
 
 #### Line Items
@@ -82,38 +82,49 @@ Click **Save** to create the template. If **Active** is enabled and **Invoice Sc
 
 Invoice Filer uses a smart system to calculate when invoices are generated and when they're due.
 
-### The Billing Day
+### The Billing Day (Due Date)
 
-The **Billing Day** is the day of the month when a draft invoice is generated. You can set this from 1 to 28 (to avoid issues with shorter months).
+The **Billing Day** is the day of the month when you need money **on your account**. This becomes the invoice due date. You can set this from 1 to 28 (to avoid issues with shorter months).
 
-**Example**: If your billing day is 15, the app will generate a draft invoice on the 15th of each month.
+**Example**: If your billing day is 15, that means you need payment to arrive by the 15th of each month.
 
 ### How Due Dates Are Calculated
 
-The due date calculation ensures payment arrives before the actual billing day, which is important for time-sensitive payments like salaries. Here's the process:
-
-1. **Start with next month's billing day**
-   - If billing day is 15 and today is January 15th, the target is February 15th
+1. **Start with the billing day**
+   - This is when money should BE on your account
 
 2. **Adjust for non-working days**
-   - If February 15th is a Saturday, Sunday, or bank holiday, move to the previous working day
-   - Example: If Feb 15 is Saturday → adjusted to Feb 14 (Friday)
+   - If the billing day falls on a Saturday, Sunday, or bank holiday, it moves to the previous working day
+   - Example: If the 15th is Saturday → due date becomes the 14th (Friday)
 
-3. **Calculate the due date**
-   - Subtract 1 working day from the adjusted billing day
-   - Example: Feb 14 (Friday) minus 1 working day → Feb 13 (Thursday) = **Due Date**
+### How Generation Dates Are Calculated
+
+Invoices are generated **early enough** for customers to pay on time:
+
+1. **Calculate generation date**
+   - Generation date = Billing day minus payment terms
+   - Example: Billing day 15, Net 30 terms → generate on the 15th of the *previous* month
+
+2. **Adjust for non-working days**
+   - If the generation date falls on a weekend or holiday, it moves to the previous working day
+
+### Viewing the Next Generation Date
+
+The app shows when each template will next auto-generate:
+- In the **Templates** list: see "Next: [date]" for each active template
+- In the **Draft Editor**: see "Next invoice will be auto-generated on [date]"
 
 ### Why This Matters
 
 This calculation ensures:
-- Your invoice is generated on a predictable day
-- The due date falls on a working day
-- Payment has time to clear before the billing day
-- Bank holidays in both your country and your client's country are respected
+- **Billing day = Due date**: Money arrives when you need it
+- **Automatic timing**: Invoices generate early enough for payment terms
+- **Working days only**: Both generation and due dates fall on business days
+- **Holiday awareness**: Bank holidays in both your country and your client's country are respected
 
 ### Payment Terms Display
 
-The invoice shows payment terms (e.g., "Net 30") which represents the days between the issue date and due date. This is calculated automatically based on the due date.
+The invoice shows payment terms (e.g., "Net 30") which represents the days between the issue date and due date.
 
 ---
 
